@@ -64,8 +64,17 @@ let renderedChunkX = null;
 let renderedChunkZ = null;
 const loadedChunks = new Map();
 const queuedChunks = new Set();
+const buildingChunks = new Set();
 let chunkQueue = [];
 let chunkPumpTimer = null;
+let chunkPumpBusy = false;
+let chunkWorker = null;
+let chunkWorkerReady = Promise.resolve(false);
+let chunkWorkerReadyResolve = null;
+let chunkRequestId = 0;
+const chunkRequests = new Map();
+const chunkBuildVersions = new Map();
+const sharedBlockGeometries = new Map();
 let lastMoveSent = 0;
 let lastAction = 0;
 let miningAction = null;
@@ -419,6 +428,7 @@ function initThree() {
   worldGroup = new THREE.Group(); entityGroup = new THREE.Group(); dragonGroup = new THREE.Group();
   scene.add(worldGroup, entityGroup, dragonGroup);
   blockMaterials = buildMaterials();
+  initChunkWorker();
 
   hemiLight = new THREE.HemisphereLight(0xbde4f3, 0x314128, 1.5);
   scene.add(hemiLight);
@@ -477,42 +487,95 @@ function createAtmosphere() {
   }
 }
 
+function initChunkWorker(){
+  if(!window.Worker){chunkWorkerReady=Promise.resolve(false);return}
+  chunkWorkerReady=new Promise(resolve=>{chunkWorkerReadyResolve=resolve});
+  try{
+    chunkWorker=new Worker('/chunk-worker.js');
+    chunkWorker.onmessage=event=>{
+      const data=event.data||{};
+      if(data.type==='ready'){chunkWorkerReadyResolve?.(true);chunkWorkerReadyResolve=null;return}
+      if(data.type==='chunk'){const pending=chunkRequests.get(data.requestId);if(!pending)return;chunkRequests.delete(data.requestId);pending.resolve(data.positionsByType||{})}
+    };
+    chunkWorker.onerror=()=>{
+      chunkWorkerReadyResolve?.(false);chunkWorkerReadyResolve=null;
+      for(const pending of chunkRequests.values())pending.reject(new Error('Chunk worker unavailable'));
+      chunkRequests.clear();chunkWorker?.terminate();chunkWorker=null;
+    };
+    chunkWorker.postMessage({type:'init',overrides,circuitPower});
+  }catch{chunkWorkerReadyResolve?.(false);chunkWorkerReadyResolve=null;chunkWorker=null}
+}
+function notifyWorkerBlock(x,y,z,blockType){chunkWorker?.postMessage({type:'blockUpdate',key:keyOf(x,y,z),blockType})}
+function notifyWorkerCircuits(){chunkWorker?.postMessage({type:'circuitUpdate',circuitPower})}
 function chunkKey(chunkX,chunkZ){return`${chunkX},${chunkZ}`}
-function renderChunkRadius(){return settings.quality==='low'?1:2}
+function renderChunkRadius(){return settings.quality==='low'?2:3}
 function desiredChunkCoordinates(){
   const centerX=Math.floor((camera?.position.x||0)/CHUNK_SIZE),centerZ=Math.floor((camera?.position.z||0)/CHUNK_SIZE),radius=renderChunkRadius(),result=[];
   for(let x=centerX-radius;x<=centerX+radius;x++)for(let z=centerZ-radius;z<=centerZ+radius;z++)result.push({x,z,distance:Math.hypot(x-centerX,z-centerZ)});
   return result.sort((a,b)=>a.distance-b.distance);
 }
+function isChunkRetained(chunkX,chunkZ){const centerX=Math.floor(camera.position.x/CHUNK_SIZE),centerZ=Math.floor(camera.position.z/CHUNK_SIZE),radius=renderChunkRadius()+1;return Math.abs(chunkX-centerX)<=radius&&Math.abs(chunkZ-centerZ)<=radius}
 function disposeChunk(key){
   const group=loadedChunks.get(key);if(!group)return;const meshes=new Set(group.userData.blockMeshes||[]);blockMeshes=blockMeshes.filter(mesh=>!meshes.has(mesh));
-  group.traverse(child=>child.geometry?.dispose());worldGroup.remove(group);loadedChunks.delete(key);
+  worldGroup.remove(group);loadedChunks.delete(key);
 }
-function buildChunk(chunkX,chunkZ){
-  const key=chunkKey(chunkX,chunkZ);disposeChunk(key);const group=new THREE.Group(),positionsByType={};for(const type of [...Object.keys(blockMaterials),'water'])positionsByType[type]=[];
+function generateChunkDataSync(chunkX,chunkZ){
+  const positionsByType={};for(const type of [...Object.keys(blockMaterials),'water'])positionsByType[type]=[];
   const startX=chunkX*CHUNK_SIZE,startZ=chunkZ*CHUNK_SIZE,endX=startX+CHUNK_SIZE-1,endZ=startZ+CHUNK_SIZE-1;
   for(let x=startX;x<=endX;x++)for(let z=startZ;z<=endZ;z++)for(let y=0,top=Math.max(terrainHeight(x,z)+11,WATER_LEVEL+1,30);y<=top;y++){
     const type=getBlock(x,y,z);if(!type||!positionsByType[type])continue;const exposed=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].some(([dx,dy,dz])=>{const neighbor=getBlock(x+dx,y+dy,z+dz);return!neighbor||(type!=='water'&&neighbor==='water')||(type==='water'&&neighbor!=='water')});
-    const powered=circuitPower[keyOf(x,y,z)]&&['redstoneWire','lever','lamp','piston'].includes(type),renderType=powered?`${type}On`:type;if(exposed&&positionsByType[renderType])positionsByType[renderType].push({x,y,z});
+    const powered=circuitPower[keyOf(x,y,z)]&&['redstoneWire','lever','lamp','piston'].includes(type),renderType=powered?`${type}On`:type;if(exposed&&positionsByType[renderType])positionsByType[renderType].push(x,y,z);
   }
-  const matrix=new THREE.Matrix4(),chunkMeshes=[];for(const[type,positions]of Object.entries(positionsByType)){if(!positions.length)continue;const baseType=type.endsWith('On')?type.slice(0,-2):type,thin=baseType==='redstoneWire',short=baseType==='lever',extended=type==='pistonOn',geometry=new THREE.BoxGeometry(type==='water'?1:1.001,type==='water'?.82:thin?.08:short?.3:extended?1.3:1.001,type==='water'?1:1.001),mesh=new THREE.InstancedMesh(geometry,blockMaterials[type],positions.length);positions.forEach((position,index)=>{const offset=type==='water'?-.09:thin?-.46:short?-.35:extended?.15:0;matrix.makeTranslation(position.x,position.y+offset,position.z);mesh.setMatrixAt(index,matrix)});mesh.instanceMatrix.needsUpdate=true;mesh.userData.positions=positions;mesh.userData.blockType=baseType;mesh.receiveShadow=type!=='water';mesh.castShadow=['wood','leaves'].includes(type);group.add(mesh);chunkMeshes.push(mesh);if(type!=='water')blockMeshes.push(mesh)}
-  group.userData.blockMeshes=chunkMeshes;loadedChunks.set(key,group);worldGroup.add(group);return group;
+  return positionsByType;
 }
-function pumpChunkQueue(){
-  chunkPumpTimer=null;const next=chunkQueue.shift();if(!next){$('#stream-status')?.classList.add('hidden');return}$('#stream-status')?.classList.remove('hidden');queuedChunks.delete(chunkKey(next.x,next.z));if(!loadedChunks.has(chunkKey(next.x,next.z)))buildChunk(next.x,next.z);if(chunkQueue.length)chunkPumpTimer=setTimeout(pumpChunkQueue,12);else $('#stream-status')?.classList.add('hidden');
+async function requestChunkData(chunkX,chunkZ){
+  const ready=await chunkWorkerReady;if(!ready||!chunkWorker)return generateChunkDataSync(chunkX,chunkZ);
+  const requestId=++chunkRequestId;return new Promise((resolve,reject)=>{chunkRequests.set(requestId,{resolve,reject});chunkWorker.postMessage({type:'build',requestId,chunkX,chunkZ})});
+}
+function blockGeometry(type){
+  const baseType=type.endsWith('On')?type.slice(0,-2):type,thin=baseType==='redstoneWire',short=baseType==='lever',extended=type==='pistonOn';
+  const geometryKey=type==='water'?'water':thin?'wire':short?'lever':extended?'pistonOn':'cube';
+  if(!sharedBlockGeometries.has(geometryKey))sharedBlockGeometries.set(geometryKey,new THREE.BoxGeometry(type==='water'?1:1.001,type==='water'?.82:thin?.08:short?.3:extended?1.3:1.001,type==='water'?1:1.001));
+  return sharedBlockGeometries.get(geometryKey);
+}
+function applyChunkData(chunkX,chunkZ,positionsByType){
+  const key=chunkKey(chunkX,chunkZ),group=new THREE.Group(),matrix=new THREE.Matrix4(),chunkMeshes=[];
+  for(const[type,packed]of Object.entries(positionsByType)){if(!packed?.length)continue;const baseType=type.endsWith('On')?type.slice(0,-2):type,thin=baseType==='redstoneWire',short=baseType==='lever',extended=type==='pistonOn',count=Math.floor(packed.length/3),positions=new Array(count),mesh=new THREE.InstancedMesh(blockGeometry(type),blockMaterials[type],count),offset=type==='water'?-.09:thin?-.46:short?-.35:extended?.15:0;
+    for(let index=0;index<count;index++){const position={x:packed[index*3],y:packed[index*3+1],z:packed[index*3+2]};positions[index]=position;matrix.makeTranslation(position.x,position.y+offset,position.z);mesh.setMatrixAt(index,matrix)}
+    mesh.instanceMatrix.needsUpdate=true;mesh.userData.positions=positions;mesh.userData.blockType=baseType;mesh.receiveShadow=type!=='water';mesh.castShadow=['wood','leaves'].includes(baseType);group.add(mesh);chunkMeshes.push(mesh);
+  }
+  group.userData.blockMeshes=chunkMeshes;disposeChunk(key);loadedChunks.set(key,group);worldGroup.add(group);for(const mesh of chunkMeshes)if(mesh.userData.blockType!=='water')blockMeshes.push(mesh);
+  return group;
+}
+async function buildChunk(chunkX,chunkZ){
+  const key=chunkKey(chunkX,chunkZ),version=(chunkBuildVersions.get(key)||0)+1;chunkBuildVersions.set(key,version);
+  let positionsByType;try{positionsByType=await requestChunkData(chunkX,chunkZ)}catch{positionsByType=generateChunkDataSync(chunkX,chunkZ)}
+  if(chunkBuildVersions.get(key)!==version||!isChunkRetained(chunkX,chunkZ))return null;
+  return applyChunkData(chunkX,chunkZ,positionsByType);
+}
+async function pumpChunkQueue(){
+  chunkPumpTimer=null;if(chunkPumpBusy)return;const next=chunkQueue.shift();if(!next){$('#stream-status')?.classList.add('hidden');return}chunkPumpBusy=true;const key=chunkKey(next.x,next.z);$('#stream-status')?.classList.remove('hidden');queuedChunks.delete(key);buildingChunks.add(key);
+  try{if(next.force||!loadedChunks.has(key))await buildChunk(next.x,next.z)}finally{buildingChunks.delete(key)}
+  chunkPumpBusy=false;if(chunkQueue.length)chunkPumpTimer=setTimeout(pumpChunkQueue,0);else $('#stream-status')?.classList.add('hidden');
 }
 function refreshVisibleChunks(force=false){
-  const desired=desiredChunkCoordinates(),wanted=new Set(desired.map(chunk=>chunkKey(chunk.x,chunk.z)));for(const key of [...loadedChunks.keys()])if(force||!wanted.has(key))disposeChunk(key);
-  if(!force){const centerX=Math.floor(camera.position.x/CHUNK_SIZE),centerZ=Math.floor(camera.position.z/CHUNK_SIZE),keepRadius=renderChunkRadius()+1;for(const key of generatedChunkCache.keys()){const[x,z]=key.split(',').map(Number);if(Math.abs(x-centerX)>keepRadius||Math.abs(z-centerZ)>keepRadius)generatedChunkCache.delete(key)}}
-  if(force){chunkQueue=[];queuedChunks.clear()}else{chunkQueue=chunkQueue.filter(chunk=>wanted.has(chunkKey(chunk.x,chunk.z)));queuedChunks.clear();for(const chunk of chunkQueue)queuedChunks.add(chunkKey(chunk.x,chunk.z))}for(const chunk of desired){const key=chunkKey(chunk.x,chunk.z);if(loadedChunks.has(key)||queuedChunks.has(key))continue;queuedChunks.add(key);chunkQueue.push(chunk)}if(chunkQueue.length){$('#stream-status')?.classList.remove('hidden');if(!chunkPumpTimer)chunkPumpTimer=setTimeout(pumpChunkQueue,0)}
-  renderedChunkX=Math.floor(camera.position.x/CHUNK_SIZE);renderedChunkZ=Math.floor(camera.position.z/CHUNK_SIZE);
+  const desired=desiredChunkCoordinates(),wanted=new Set(desired.map(chunk=>chunkKey(chunk.x,chunk.z))),centerX=Math.floor(camera.position.x/CHUNK_SIZE),centerZ=Math.floor(camera.position.z/CHUNK_SIZE),keepRadius=renderChunkRadius()+1;
+  for(const key of [...loadedChunks.keys()]){const[x,z]=key.split(',').map(Number);if(Math.abs(x-centerX)>keepRadius||Math.abs(z-centerZ)>keepRadius)disposeChunk(key)}
+  for(const key of generatedChunkCache.keys()){const[x,z]=key.split(',').map(Number);if(Math.abs(x-centerX)>keepRadius+1||Math.abs(z-centerZ)>keepRadius+1)generatedChunkCache.delete(key)}
+  chunkWorker?.postMessage({type:'prune',centerX,centerZ,radius:keepRadius+1});
+  if(force){chunkQueue=[];queuedChunks.clear()}else{chunkQueue=chunkQueue.filter(chunk=>wanted.has(chunkKey(chunk.x,chunk.z)));queuedChunks.clear();for(const chunk of chunkQueue)queuedChunks.add(chunkKey(chunk.x,chunk.z))}
+  for(const chunk of desired){const key=chunkKey(chunk.x,chunk.z);if(queuedChunks.has(key))continue;if(buildingChunks.has(key)){if(force){chunkBuildVersions.set(key,(chunkBuildVersions.get(key)||0)+1);queuedChunks.add(key);chunkQueue.push({...chunk,force:true})}continue}if(!force&&loadedChunks.has(key))continue;queuedChunks.add(key);chunkQueue.push({...chunk,force})}
+  if(chunkQueue.length){$('#stream-status')?.classList.remove('hidden');if(!chunkPumpTimer&&!chunkPumpBusy)chunkPumpTimer=setTimeout(pumpChunkQueue,0)}
+  renderedChunkX=centerX;renderedChunkZ=centerZ;
 }
-function buildWorld(){
-  const progress=$('#loading-progress');if(progress)progress.style.width='18%';for(const key of [...loadedChunks.keys()])disposeChunk(key);chunkQueue=[];queuedChunks.clear();blockMeshes=[];const desired=desiredChunkCoordinates();desired.forEach((chunk,index)=>{buildChunk(chunk.x,chunk.z);if(progress)progress.style.width=`${18+Math.round((index+1)/desired.length*74)}%`});renderedChunkX=Math.floor(camera.position.x/CHUNK_SIZE);renderedChunkZ=Math.floor(camera.position.z/CHUNK_SIZE);worldReady=true;
+async function buildWorld(){
+  const progress=$('#loading-progress');if(progress)progress.style.width='18%';for(const key of [...loadedChunks.keys()])disposeChunk(key);chunkQueue=[];queuedChunks.clear();buildingChunks.clear();blockMeshes=[];const desired=desiredChunkCoordinates();
+  for(let index=0;index<desired.length;index++){const chunk=desired[index];buildingChunks.add(chunkKey(chunk.x,chunk.z));await buildChunk(chunk.x,chunk.z);buildingChunks.delete(chunkKey(chunk.x,chunk.z));if(progress)progress.style.width=`${18+Math.round((index+1)/desired.length*74)}%`;await new Promise(resolve=>requestAnimationFrame(resolve))}
+  renderedChunkX=Math.floor(camera.position.x/CHUNK_SIZE);renderedChunkZ=Math.floor(camera.position.z/CHUNK_SIZE);worldReady=true;
 }
 function scheduleWorldRebuild(position=null,force=false){
   if(force)pendingForceRefresh=true;else if(!position)pendingWorldRefresh=true;else{const cx=Math.floor(position.x/CHUNK_SIZE),cz=Math.floor(position.z/CHUNK_SIZE),targets=[[cx,cz]],localX=((position.x%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE,localZ=((position.z%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE;if(localX===0)targets.push([cx-1,cz]);if(localX===CHUNK_SIZE-1)targets.push([cx+1,cz]);if(localZ===0)targets.push([cx,cz-1]);if(localZ===CHUNK_SIZE-1)targets.push([cx,cz+1]);for(const[x,z]of targets)pendingDirtyChunks.add(chunkKey(x,z))}
-  if(rebuildTimer)return;rebuildTimer=setTimeout(()=>{rebuildTimer=null;if(pendingForceRefresh){pendingForceRefresh=false;pendingWorldRefresh=false;pendingDirtyChunks.clear();refreshVisibleChunks(true);return}if(pendingWorldRefresh){pendingWorldRefresh=false;refreshVisibleChunks(false)}for(const key of pendingDirtyChunks){const[x,z]=key.split(',').map(Number);if(loadedChunks.has(key))buildChunk(x,z)}pendingDirtyChunks.clear()},35);
+  if(rebuildTimer)return;rebuildTimer=setTimeout(()=>{rebuildTimer=null;if(pendingForceRefresh){pendingForceRefresh=false;pendingWorldRefresh=false;pendingDirtyChunks.clear();refreshVisibleChunks(true);return}if(pendingWorldRefresh){pendingWorldRefresh=false;refreshVisibleChunks(false)}for(const key of pendingDirtyChunks){const[x,z]=key.split(',').map(Number);if(loadedChunks.has(key)||buildingChunks.has(key))buildChunk(x,z)}pendingDirtyChunks.clear()},35);
 }
 
 function simpleMaterial(color, emissive = 0) { return new THREE.MeshToonMaterial({ color, emissive }); }
@@ -843,7 +906,7 @@ function escapeHtml(text){const div=document.createElement('div');div.textConten
 function startGame(data) {
   self=data.self;spawn=data.spawn;worldDay=data.worldDay;overrides=data.blocks||{};circuitPower=data.circuitPower||{};profile={...data.profile,quests:data.profile.quests||[]};recipes=data.recipes;shop=data.shop;clans=data.clans||[];landmarks=data.landmarks||[];
   $('#loading-screen').classList.add('active');$('#login-screen').classList.remove('active');$('#loading-copy').textContent='Sto preparando foreste, miniere e creature…';
-  initThree();setTimeout(()=>{buildWorld();syncPlayers(data.players);syncMobs(data.monsters);syncDragons(data.dragons);syncLootBoxes(data.lootBoxes||[]);syncItemDrops(data.itemDrops||[]);syncNpcs(data.npcs||[]);syncChests(data.chests||[]);refreshProfile(profile);$('#loading-progress').style.width='100%';setTimeout(()=>{$('#loading-screen').classList.remove('active');$('#hud').classList.remove('hidden');gameStarted=true;controls.lock();toast('Benvenuto a Terranovaland. Parla con Elda o parti all’esplorazione!','quest');sound('quest')},350)},60);animate();
+  initThree();setTimeout(async()=>{await buildWorld();syncPlayers(data.players);syncMobs(data.monsters);syncDragons(data.dragons);syncLootBoxes(data.lootBoxes||[]);syncItemDrops(data.itemDrops||[]);syncNpcs(data.npcs||[]);syncChests(data.chests||[]);refreshProfile(profile);$('#loading-progress').style.width='100%';setTimeout(()=>{$('#loading-screen').classList.remove('active');$('#hud').classList.remove('hidden');gameStarted=true;controls.lock();toast('Benvenuto a Terranovaland. Parla con Elda o parti all’esplorazione!','quest');sound('quest')},350)},60);animate();
 }
 
 $('#login-form').addEventListener('submit',event=>{event.preventDefault();ensureAudio();sound('ui');const name=$('#player-name').value.trim();$('#login-error').textContent='';if(name.length<2){$('#login-error').textContent='Inserisci almeno 2 caratteri.';return}localStorage.setItem('terranovaland-name',name);socket.emit('login',{name})});
@@ -886,8 +949,8 @@ socket.on('loginError',message=>$('#login-error').textContent=message);
 socket.on('connect_error',()=>$('#login-error').textContent='Server non raggiungibile. Riprovo automaticamente…');
 socket.on('profile',next=>refreshProfile({...next,quests:next.quests||profile?.quests||[]}));
 socket.on('toast',data=>{toast(data.text,data.type);if(data.type==='quest')sound('quest');else if(data.type==='coin')sound('coin')});
-socket.on('blockChanged',data=>{overrides[keyOf(data.x,data.y,data.z)]=data.type;scheduleWorldRebuild(data);if(data.by===profile?.name&&data.type!==0)sound('place')});
-socket.on('circuitState',next=>{circuitPower=next||{};scheduleWorldRebuild(null,true)});
+socket.on('blockChanged',data=>{overrides[keyOf(data.x,data.y,data.z)]=data.type;notifyWorkerBlock(data.x,data.y,data.z,data.type);scheduleWorldRebuild(data);if(data.by===profile?.name&&data.type!==0)sound('place')});
+socket.on('circuitState',next=>{circuitPower=next||{};notifyWorkerCircuits();scheduleWorldRebuild(null,true)});
 socket.on('leverChanged',data=>{sound('ui');if(data.by===profile?.name)toast(data.active?'Circuito alimentato':'Circuito disattivato')});
 socket.on('lootBoxes',syncLootBoxes);socket.on('itemDrops',syncItemDrops);
 socket.on('npcDialogue',showNpcDialogue);
