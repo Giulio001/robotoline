@@ -51,6 +51,10 @@
     <div id="crosshair"><span></span><span></span></div>
     <div id="target-label"></div>
     <div id="mining-progress" class="mining-progress hidden"><i></i></div>
+    <div id="quest-direction" class="quest-direction hidden"><span>◆</span><div><small>OBIETTIVO</small><b></b></div><em></em></div>
+    <div id="boss-bar" class="boss-bar hidden"><div><span>BOSS</span><strong></strong><em></em></div><i></i></div>
+
+    <section id="minimap" class="minimap"><header><span>MAPPA</span><b id="minimap-coords">0, 0</b></header><canvas id="minimap-canvas" width="160" height="160"></canvas><small>▲ TU · ◆ OBIETTIVO</small></section>
 
     <header class="topbar">
       <div class="brand-mini"><i>◆</i><span>TERRANOVA<strong>LAND</strong></span></div>
@@ -67,8 +71,9 @@
       <section class="hud-card player-card">
         <div class="avatar" id="avatar-letter">T</div>
         <div class="player-meta"><strong id="player-label">Esploratore</strong><span id="clan-label">Senza clan</span></div>
-        <div class="level-badge">I</div>
+        <div class="level-badge" id="level-badge">1</div>
         <div class="health-row"><span>♥</span><div class="bar"><i id="health-bar"></i></div><b id="health-text">100</b></div>
+        <div class="xp-row"><span>XP</span><div class="bar"><i id="xp-bar"></i></div><b id="xp-text">0</b></div>
       </section>
 
       <section class="hud-card quest-card">
@@ -93,6 +98,7 @@
       <button data-panel="shop-panel"><span>◈</span>Mercato <kbd>M</kbd></button>
       <button data-panel="clan-panel"><span>♜</span>Clan <kbd>L</kbd></button>
       <button data-panel="settings-panel"><span>⚙</span>Impostazioni <kbd>O</kbd></button>
+      <button data-panel="exploration-panel"><span>⌖</span>Esplorazione <kbd>P</kbd></button>
     </div>
   </div>
 
@@ -100,6 +106,7 @@
   <aside id="inventory-panel" class="game-panel">
     <button class="panel-close">×</button><p class="eyebrow">LA TUA CASETTA · TAB</p><h2>Inventario</h2>
     <p class="panel-copy">Click destro per indossare. Click sinistro per regalare o gettare un oggetto nel mondo.</p>
+    <div id="equipment-slots" class="equipment-slots"></div>
     <div id="inventory-grid" class="item-grid"></div>
     <div id="inventory-actions" class="inventory-actions hidden"></div>
   </aside>
@@ -119,6 +126,11 @@
     <form id="clan-create" class="inline-form"><input maxlength="20" placeholder="Nome del nuovo clan"><button class="primary">Crea</button></form>
     <div id="clan-list" class="clan-list"></div>
     <button id="leave-clan" class="danger hidden">Lascia il clan</button>
+  </aside>
+  <aside id="exploration-panel" class="game-panel">
+    <button class="panel-close">×</button><p class="eyebrow">DIARIO DEL CARTOGRAFO · P</p><h2>Esplorazione</h2>
+    <p class="panel-copy">Scopri laghi, fiumi, castelli, rovine, santuari e dungeon. Ogni nuova scoperta assegna XP e monete.</p>
+    <div id="landmark-list" class="landmark-list"></div>
   </aside>
   <aside id="settings-panel" class="game-panel">
     <button class="panel-close">×</button><p class="eyebrow">ESPERIENZA DI GIOCO</p><h2>Impostazioni</h2>
@@ -145,11 +157,14 @@
         <div><kbd>Click dx</kbd><span>Posiziona blocco</span></div><div><kbd>E</kbd><span>Cavalca / scendi dal drago</span></div>
         <div><kbd>F</kbd><span>Mangia il pane</span></div><div><kbd>1 — 9</kbd><span>Barra rapida</span></div>
         <div><kbd>Rotella</kbd><span>Cambia oggetto in mano</span></div><div><kbd>Tab</kbd><span>Inventario personale</span></div>
-        <div><kbd>T / Invio</kbd><span>Apri la chat</span></div><div><kbd>O</kbd><span>Impostazioni</span></div>
+        <div><kbd>T / Invio</kbd><span>Apri la chat</span></div><div><kbd>P</kbd><span>Mappa e scoperte</span></div>
       </div><p class="tip">Suggerimento: crea presto un piccone. I minerali più preziosi si trovano sotto la superficie.</p>
     </div>
   </div>
   <div id="death-overlay" class="overlay hidden"><div class="modal small-modal death"><span>☠</span><h2>Sei caduto</h2><p>Terranovaland offre sempre una seconda possibilità.</p><button id="respawn-button" class="primary">Rinasci alla piazza</button></div></div>
+  <div id="npc-overlay" class="overlay hidden">
+    <div class="modal npc-modal"><button class="modal-x npc-close">×</button><div class="npc-portrait">◆</div><div><p class="eyebrow" id="npc-role">ABITANTE</p><h2 id="npc-name">Abitante</h2><p id="npc-text"></p><div id="npc-quest" class="npc-quest hidden"></div><button id="npc-continue" class="primary">Continua l’avventura</button></div></div>
+  </div>
   <div id="toasts" aria-live="polite"></div>
 
   <script src="/socket.io/socket.io.js"></script>

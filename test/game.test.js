@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { terrainHeight, SPAWN, RECIPES, SHOP, freshProfile, updateDragonFlight, createDeathBox } = require('../server');
+const { terrainHeight, SPAWN, RECIPES, SHOP, QUESTS, LANDMARKS, freshProfile, activeQuest, advanceQuest, updateDragonFlight, createDeathBox } = require('../server');
 
 test('lo spawn comune è sopra il terreno e deterministico', () => {
   assert.equal(SPAWN.x, 0);
@@ -28,6 +28,26 @@ test('ogni nuovo esploratore riceve un piccone iniziale', () => {
   const profile = freshProfile('Giulio');
   assert.equal(profile.inventory.woodPickaxe, 1);
   assert.equal(profile.starterGranted, true);
+});
+
+test('la campagna contiene quindici missioni progressive con ricompense', () => {
+  const profile = freshProfile('Avventuriero');
+  assert.equal(QUESTS.length, 15);
+  assert.equal(activeQuest(profile).id, 'wood_call');
+  for (let index = 0; index < 4; index += 1) advanceQuest(null, profile, 'mine', 'wood');
+  assert.equal(profile.questIndex, 1);
+  assert.ok(profile.completedQuests.includes('wood_call'));
+  assert.equal(profile.xp, 25);
+  assert.equal(profile.inventory.planks, 4);
+});
+
+test('il mondo offre luoghi d’esplorazione distinti e persistenti', () => {
+  const profile = freshProfile('Cartografo');
+  assert.ok(LANDMARKS.length >= 8);
+  assert.equal(new Set(LANDMARKS.map(landmark => landmark.id)).size, LANDMARKS.length);
+  assert.deepEqual(profile.discoveredLandmarks, []);
+  assert.ok(LANDMARKS.some(landmark => landmark.type === 'dungeon'));
+  assert.ok(LANDMARKS.some(landmark => landmark.type === 'lago'));
 });
 
 test('i draghi senza cavaliere volano autonomamente', () => {

@@ -23,10 +23,12 @@ const ITEM_INFO = {
   obsidian: ['Ossidiana', '#35294d', ''], crystal: ['Cristallo', '#38a6c6', '◆'], coal: ['Carbone', '#303436', ''], iron: ['Ferro', '#a9aba5', ''],
   gold: ['Oro', '#d3a836', ''], redstone: ['Pietrarossa', '#a92f35', ''], redstoneWire: ['Circuito', '#8e252b', '⌁'], lever: ['Leva', '#86715a', '⌇'], lamp: ['Lampada', '#d5a842', '☼'], piston: ['Pistone', '#92816b', '↥'], snow: ['Neve', '#dbe8e8', ''], torch: ['Torcia', '#d88f35', '♨'], bread: ['Pane', '#b97835', '◒'], lootBox: ['Box smarrito', '#b98442', '▣'],
   woodPickaxe: ['Piccone di legno', '', '⚒'], stonePickaxe: ['Piccone di pietra', '', '⚒'], ironPickaxe: ['Piccone di ferro', '', '⚒'],
-  stoneSword: ['Spada di pietra', '', '⚔'], crystalSword: ['Spada di cristallo', '', '⚔'], dragonTreat: ['Dono per draghi', '', '✦']
+  stoneSword: ['Spada di pietra', '', '⚔'], crystalSword: ['Spada di cristallo', '', '⚔'], guardianBlade: ['Lama del Guardiano', '', '⚔'], dragonTreat: ['Dono per draghi', '', '✦'],
+  healingPotion: ['Pozione curativa', '#b84f8f', '●'], ironHelmet: ['Elmo di ferro', '', '◉'], ironChestplate: ['Corazza di ferro', '', '⬟'], ironBoots: ['Stivali di ferro', '', '⌑'],
+  mapFragment: ['Frammento di mappa', '#d4b46a', '⌁'], guardianCore: ['Nucleo del Guardiano', '#55c4c7', '◆'], voidScale: ['Scaglia del Vuoto', '#563780', '◈'], crownOfTerranova: ['Corona di Terranova', '', '♛']
 };
 const PLACEABLE = new Set(['grass', 'dirt', 'stone', 'sand', 'wood', 'leaves', 'planks', 'brick', 'obsidian', 'crystal', 'coal', 'iron', 'gold', 'redstone', 'redstoneWire', 'lever', 'lamp', 'piston', 'snow', 'torch']);
-const MOB_LABELS = { slime: 'Melma delle radici', boar: 'Cinghiale roccioso', golem: 'Golem antico', wraith: 'Spettro del crepuscolo' };
+const MOB_LABELS = { slime: 'Melma delle radici', boar: 'Cinghiale roccioso', golem: 'Golem antico', wraith: 'Spettro del crepuscolo', ancientGuardian: 'Guardiano Antico', voidDragon: 'Drago del Vuoto' };
 
 let scene, camera, renderer, controls, clock, sun, hemiLight, stars, skyDome, sunDisc, moonDisc;
 let worldGroup, entityGroup, dragonGroup, selectionBox, crackBox, viewModel;
@@ -38,6 +40,7 @@ let profile = null;
 let recipes = {};
 let shop = {};
 let clans = [];
+let landmarks = [];
 let self = null;
 let spawn = null;
 let worldDay = 0.25;
@@ -59,6 +62,7 @@ let viewModelSwing = 0;
 let audioContext = null;
 let masterGain = null;
 let ambientTimer = null;
+let lastMinimapUpdate = 0;
 const clouds = [];
 
 const remotePlayers = new Map();
@@ -66,6 +70,8 @@ const mobs = new Map();
 const dragons = new Map();
 const lootBoxes = new Map();
 const itemDrops = new Map();
+const npcs = new Map();
+const chests = new Map();
 const keys = new Set();
 const velocity = new THREE.Vector3();
 const moveDirection = new THREE.Vector3();
@@ -103,6 +109,9 @@ function chunkFeature(chunkX, chunkZ) {
   let type = null;
   if (chunkX === 1 && chunkZ === 1) type = 'castle';
   else if (chunkX === -2 && chunkZ === -2) type = 'dungeon';
+  else if (chunkX === -3 && chunkZ === 0) type = 'ruin';
+  else if (chunkX === -4 && chunkZ === 2) type = 'shrine';
+  else if (chunkX === 3 && chunkZ === -4) type = 'tower';
   else {
     const chance = worldHash(chunkX, chunkZ, 77);
     if (chance < .7){chunkFeatureCache.set(cacheKey,null);return null}
@@ -342,8 +351,8 @@ function updateHeldViewModel() {
   if (item.includes('Pickaxe')) {
     const handle = box(.09, .72, .09, viewMaterial(item === 'ironPickaxe' ? 0x7c5a35 : 0x79512e)); handle.position.y = .35; handle.rotation.z = -.28;
     const head = box(.65, .12, .14, viewMaterial(item === 'woodPickaxe' ? 0x986d3e : item === 'stonePickaxe' ? 0x737b7b : 0xb5c0bd)); head.position.set(-.09, .66, 0); head.rotation.z = -.12; viewModel.add(handle, head);
-  } else if (item.includes('Sword')) {
-    const grip = box(.1, .45, .1, viewMaterial(0x76512d)); grip.position.y=.22; const blade=box(.13,.8,.07,viewMaterial(item==='crystalSword'?0x59d5ec:0xaeb5b2,item==='crystalSword'?0x174b58:0));blade.position.y=.78;viewModel.add(grip,blade);
+  } else if (item.includes('Sword') || item === 'guardianBlade') {
+    const guardian=item==='guardianBlade';const grip = box(.1, .45, .1, viewMaterial(guardian?0x3e2a51:0x76512d)); grip.position.y=.22; const blade=box(.13,.8,.07,viewMaterial(guardian?0x71f0da:item==='crystalSword'?0x59d5ec:0xaeb5b2,guardian?0x1b665c:item==='crystalSword'?0x174b58:0));blade.position.y=.78;viewModel.add(grip,blade);
   } else {
     const color = ITEM_INFO[item]?.[1] || '#b97835'; const held = box(.38, .38, .38, viewMaterial(color)); held.position.y = .32; held.rotation.set(.2,.25,.1); viewModel.add(held);
   }
@@ -527,9 +536,11 @@ function createMobModel(mob) {
   } else {
     const cloak = simpleMaterial(0x4d3a70, 0x1e0d35); body = box(.85,1.45,.45,cloak); body.position.y=1.05;group.add(body);const head=box(.58,.58,.58,simpleMaterial(0x9281bd,0x2b1748));head.position.y=1.92;group.add(head);
   }
-  const hpBack=box(1.3,.09,.04,simpleMaterial(0x2b3130));hpBack.position.set(0,2.65,0);const hp=box(1.26,.065,.05,simpleMaterial(0xd85955));hp.position.set(0,2.65,.03);group.add(hpBack,hp);
+  const boss=Boolean(mob.boss||['ancientGuardian','voidDragon'].includes(mob.kind));
+  if(boss){group.scale.setScalar(mob.kind==='voidDragon'?2.2:1.75);const crown=box(.8,.18,.8,simpleMaterial(mob.kind==='voidDragon'?0x7438a0:0x39b5a5,0x321649));crown.position.y=2.35;group.add(crown)}
+  const hpBack=box(1.3,.09,.04,simpleMaterial(0x2b3130));hpBack.position.set(0,2.65,0);const hp=box(1.26,.065,.05,simpleMaterial(boss?0xec4b62:0xd85955));hp.position.set(0,2.65,.03);group.add(hpBack,hp);
   const tag=createNameTag(MOB_LABELS[mob.kind]||mob.kind,'#ffd4c7');tag.position.y=2.95;tag.scale.multiplyScalar(.78);group.add(tag);
-  group.userData={entityType:'mob',id:mob.id,kind:mob.kind,target:new THREE.Vector3(mob.x,mob.y-.55,mob.z),hpBar:hp,maxHp:mob.maxHp};
+  group.userData={entityType:'mob',id:mob.id,kind:mob.kind,boss,target:new THREE.Vector3(mob.x,mob.y-.55,mob.z),hpBar:hp,hp:mob.hp,maxHp:mob.maxHp};
   group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);return group;
 }
 
@@ -562,6 +573,21 @@ function createItemDropModel(drop){
   group.userData={entityType:'itemDrop',id:drop.id,item:drop.item,target:new THREE.Vector3(drop.x,drop.y,drop.z)};group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);return group;
 }
 
+function createNpcModel(npc){
+  const group=new THREE.Group(),robe=simpleMaterial(new THREE.Color(npc.color||'#5fb98e')),skin=simpleMaterial(0xd4a177),dark=simpleMaterial(0x263631);
+  const body=box(.68,1.05,.42,robe);body.position.y=.9;const head=box(.52,.52,.52,skin);head.position.y=1.72;const hair=box(.54,.14,.54,dark);hair.position.y=2;group.add(body,head,hair);
+  for(const x of [-.45,.45]){const arm=box(.18,.75,.2,skin);arm.position.set(x,.92,0);group.add(arm)}
+  const tag=createNameTag(`${npc.name} · ${npc.role}`,'#ffe39b');tag.position.y=2.55;group.add(tag);
+  group.userData={entityType:'npc',id:npc.id,name:npc.name,role:npc.role,target:new THREE.Vector3(npc.x,npc.y,npc.z)};group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);return group;
+}
+
+function createWorldChestModel(chestData){
+  const group=new THREE.Group(),wood=simpleMaterial(chestData.claimed?0x514c43:0x76502d),trim=simpleMaterial(chestData.claimed?0x696b67:0xe2bd55,chestData.claimed?0:0x4b3009);
+  const base=box(1.05,.62,.8,wood);base.position.y=.35;const lid=box(1.1,.28,.84,trim);lid.position.y=.78;const lock=box(.18,.25,.07,trim);lock.position.set(0,.53,.44);group.add(base,lid,lock);
+  const tag=createNameTag(chestData.claimed?`${chestData.name} · vuoto`:chestData.name,chestData.claimed?'#999b96':'#ffe092');tag.position.y=1.5;tag.scale.multiplyScalar(.78);group.add(tag);
+  group.userData={entityType:'chest',id:chestData.id,name:chestData.name,claimed:Boolean(chestData.claimed),target:new THREE.Vector3(chestData.x,chestData.y,chestData.z)};group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);return group;
+}
+
 function syncPlayers(list) {
   const ids = new Set(list.map(player => player.id));
   for (const [id, model] of remotePlayers) if (!ids.has(id) || id === self?.id) { entityGroup.remove(model); remotePlayers.delete(id); }
@@ -575,7 +601,7 @@ function syncPlayers(list) {
 
 function syncMobs(list) {
   const ids=new Set(list.map(m=>m.id));for(const[id,model]of mobs)if(!ids.has(id)){entityGroup.remove(model);mobs.delete(id)}
-  for(const mob of list){if(!mobs.has(mob.id)){const model=createMobModel(mob);mobs.set(mob.id,model);entityGroup.add(model)}const model=mobs.get(mob.id);model.userData.target.set(mob.x,mob.y-.55,mob.z);model.userData.targetYaw=mob.yaw;model.userData.hpBar.scale.x=Math.max(.001,mob.hp/mob.maxHp);model.userData.hpBar.position.x=-.63*(1-mob.hp/mob.maxHp)}
+  for(const mob of list){if(!mobs.has(mob.id)){const model=createMobModel(mob);mobs.set(mob.id,model);entityGroup.add(model)}const model=mobs.get(mob.id);model.userData.target.set(mob.x,mob.y-.55,mob.z);model.userData.targetYaw=mob.yaw;model.userData.hp=mob.hp;model.userData.maxHp=mob.maxHp;model.userData.hpBar.scale.x=Math.max(.001,mob.hp/mob.maxHp);model.userData.hpBar.position.x=-.63*(1-mob.hp/mob.maxHp)}
 }
 function syncDragons(list) {
   const ids=new Set(list.map(d=>d.id));for(const[id,model]of dragons)if(!ids.has(id)){dragonGroup.remove(model);dragons.delete(id)}
@@ -590,6 +616,14 @@ function syncItemDrops(list){
   const ids=new Set(list.map(item=>item.id));for(const[id,model]of itemDrops)if(!ids.has(id)){entityGroup.remove(model);itemDrops.delete(id)}
   for(const item of list){if(!itemDrops.has(item.id)){const model=createItemDropModel(item);itemDrops.set(item.id,model);entityGroup.add(model)}const model=itemDrops.get(item.id);model.userData.target.set(item.x,item.y,item.z)}
 }
+function syncNpcs(list){
+  const ids=new Set(list.map(item=>item.id));for(const[id,model]of npcs)if(!ids.has(id)){entityGroup.remove(model);npcs.delete(id)}
+  for(const item of list){if(!npcs.has(item.id)){const model=createNpcModel(item);npcs.set(item.id,model);entityGroup.add(model)}}
+}
+function syncChests(list){
+  const ids=new Set(list.map(item=>item.id));for(const[id,model]of chests)if(!ids.has(id)){entityGroup.remove(model);chests.delete(id)}
+  for(const item of list){const current=chests.get(item.id);if(!current||current.userData.claimed!==Boolean(item.claimed)){if(current)entityGroup.remove(current);const model=createWorldChestModel(item);chests.set(item.id,model);entityGroup.add(model)}}
+}
 
 function iconMarkup(item) {
   const info=ITEM_INFO[item]||[item,'#666','?'];const tool=!info[1];return `<span class="item-icon ${tool?'tool':''}" style="--item:${info[1]||'transparent'}">${info[2]||''}</span>`;
@@ -599,10 +633,10 @@ function selectedItem(){return hotbarItems[selectedSlot]}
 
 function refreshProfile(next) {
   profile={...profile,...next};
-  $('#coins').textContent=profile.coins;$('#health-text').textContent=profile.health;$('#health-bar').style.width=`${profile.health}%`;
+  const maxHealth=profile.maxHealth||100,xpNext=profile.xpNext||175;$('#coins').textContent=profile.coins;$('#health-text').textContent=`${profile.health}/${maxHealth}`;$('#health-bar').style.width=`${profile.health/maxHealth*100}%`;$('#level-badge').textContent=profile.level||1;$('#xp-text').textContent=`${profile.xp||0}/${xpNext}`;$('#xp-bar').style.width=`${(profile.xp||0)/xpNext*100}%`;
   $('#player-label').textContent=profile.name;$('#avatar-letter').textContent=profile.name[0].toUpperCase();$('#clan-label').textContent=profile.clan||'Senza clan';
   profile.health<=30?$('#health-bar').style.filter='brightness(1.35)':$('#health-bar').style.filter='';
-  fillHotbar();updateHeldViewModel();renderInventory();renderQuests();renderCrafting();renderShop();renderClans();
+  fillHotbar();updateHeldViewModel();renderInventory();renderQuests();renderExploration();renderCrafting();renderShop();renderClans();
   if(next.message)toast(next.message);
 }
 
@@ -620,24 +654,43 @@ function cycleHotbar(direction){
     if(hotbarItems[index]){selectSlot(index);return}
   }
 }
-function equipItem(item){if(!hotbarItems.includes(item))hotbarItems[selectedSlot]=item;else selectedSlot=hotbarItems.indexOf(item);fillHotbar();updateHeldViewModel();toast(`${itemName(item)} equipaggiato`);sound('ui')}
+function isArmor(item){return /Helmet|Chestplate|Boots/.test(item)}
+function equipItem(item){if(isArmor(item)){socket.emit('equipItem',item);sound('ui');return}if(!hotbarItems.includes(item))hotbarItems[selectedSlot]=item;else selectedSlot=hotbarItems.indexOf(item);fillHotbar();updateHeldViewModel();toast(`${itemName(item)} nella barra rapida`);sound('ui')}
 function dropPosition(){camera.getWorldDirection(forward);forward.y=0;forward.normalize();return{x:camera.position.x+forward.x*1.7,y:camera.position.y-EYE_HEIGHT+.42,z:camera.position.z+forward.z*1.7}}
 function showInventoryActions(item){
   const nearby=[...remotePlayers.values()].filter(model=>model.position.distanceTo(camera.position)<7).map(model=>({id:model.userData.id,name:model.userData.name}));const panel=$('#inventory-actions');
-  panel.innerHTML=`<header>${iconMarkup(item)}<strong>${itemName(item)}</strong><button aria-label="Chiudi">×</button></header><div class="action-buttons"><button data-equip>Indossa / usa</button><button class="drop" data-drop>Getta a terra</button></div>${item!=='lootBox'?`<div class="gift-row"><select><option value="">Giocatore vicino…</option>${nearby.map(player=>`<option value="${player.id}">${escapeHtml(player.name)}</option>`).join('')}</select><button data-gift ${nearby.length?'':'disabled'}>Regala</button></div>`:'<p class="panel-copy">Posalo vicino al proprietario per restituirglielo.</p>'}`;
+  panel.innerHTML=`<header>${iconMarkup(item)}<strong>${itemName(item)}</strong><button aria-label="Chiudi">×</button></header><div class="action-buttons"><button data-equip>${isArmor(item)?'Indossa / rimuovi':'Metti in barra'}</button><button class="drop" data-drop>Getta a terra</button></div>${item!=='lootBox'?`<div class="gift-row"><select><option value="">Giocatore vicino…</option>${nearby.map(player=>`<option value="${player.id}">${escapeHtml(player.name)}</option>`).join('')}</select><button data-gift ${nearby.length?'':'disabled'}>Regala</button></div>`:'<p class="panel-copy">Posalo vicino al proprietario per restituirglielo.</p>'}`;
   panel.classList.remove('hidden');panel.querySelector('header button').onclick=()=>panel.classList.add('hidden');panel.querySelector('[data-equip]').onclick=()=>equipItem(item);
   panel.querySelector('[data-drop]').onclick=()=>{const position=dropPosition();if(item==='lootBox')socket.emit('dropLootBox',position);else socket.emit('dropItem',{item,...position});panel.classList.add('hidden')};
   const gift=panel.querySelector('[data-gift]');if(gift)gift.onclick=()=>{const targetId=panel.querySelector('select').value;if(targetId){socket.emit('giftItem',{item,targetId});panel.classList.add('hidden')}};
 }
 function renderInventory(){
   if(!profile)return;$('#inventory-grid').innerHTML=Object.entries(profile.inventory).sort((a,b)=>a[0].localeCompare(b[0])).map(([item,count])=>`<button class="inventory-item" data-item="${item}"><em>${count}</em>${iconMarkup(item)}<b>${itemName(item)}</b></button>`).join('')||'<p>Lo zaino è vuoto.</p>';
+  const slots=[['helmet','◉','ELMO'],['chest','⬟','CORAZZA'],['boots','⌑','STIVALI']];$('#equipment-slots').innerHTML=slots.map(([slot,icon,label])=>`<button class="equipment-slot" data-equipped="${profile.equipment?.[slot]||''}"><span>${icon}</span><div><small>${label}</small><b>${profile.equipment?.[slot]?itemName(profile.equipment[slot]):'Vuoto'}</b></div></button>`).join('');$$('[data-equipped]').forEach(button=>button.onclick=()=>{if(button.dataset.equipped)socket.emit('equipItem',button.dataset.equipped)});
   $$('.inventory-item').forEach(button=>{button.onclick=()=>showInventoryActions(button.dataset.item);button.oncontextmenu=event=>{event.preventDefault();equipItem(button.dataset.item)}});
 }
 function costText(cost){return Object.entries(cost).map(([item,amount])=>`${amount} ${itemName(item)}`).join(' · ')}
 function canAfford(cost){return Object.entries(cost).every(([item,amount])=>(profile?.inventory[item]||0)>=amount)}
 function renderCrafting(){if(!profile)return;$('#recipe-list').innerHTML=Object.entries(recipes).map(([id,recipe])=>`<article class="shop-item"><strong>${recipe.label}</strong><p class="cost">${costText(recipe.cost)}</p><button data-craft="${id}" ${canAfford(recipe.cost)?'':'disabled'}>Crea</button></article>`).join('');$$('[data-craft]').forEach(button=>button.onclick=()=>socket.emit('craft',button.dataset.craft))}
 function renderShop(){if(!profile)return;$('#shop-list').innerHTML=Object.entries(shop).map(([id,product])=>`<article class="shop-item"><strong>${product.label}</strong><p class="cost">◈ ${product.price} monete</p><button data-buy="${id}" ${profile.coins>=product.price?'':'disabled'}>Acquista</button></article>`).join('');$$('[data-buy]').forEach(button=>button.onclick=()=>socket.emit('buy',button.dataset.buy))}
-function renderQuests(){if(!profile)return;const quests=profile.quests||[];$('#quests').innerHTML=quests.map(quest=>{const current=Math.min(profile.stats[quest.type]||0,quest.goal),done=profile.claimedQuests.includes(quest.id);return `<article class="quest ${done?'done':''}"><header><strong>${quest.title}</strong><b>${done?'COMPLETATA':`${current} / ${quest.goal}`}</b></header><p>${quest.description} · Ricompensa ◈ ${quest.reward}</p><div class="bar"><i style="width:${current/quest.goal*100}%"></i></div></article>`}).join('')}
+function renderQuests(){if(!profile)return;const quests=profile.quests||[],quest=quests[profile.questIndex||0];if(!quest){$('#quests').innerHTML='<article class="quest done"><header><strong>Eroe di Terranovaland</strong><b>CAMPAGNA COMPLETA</b></header><p>Il Drago del Vuoto è caduto. Continua a esplorare, costruire e aiutare il tuo clan.</p></article>';return}const current=Math.min(profile.questProgress?.[quest.id]||0,quest.goal),reward=quest.reward||{};$('#quests').innerHTML=`<article class="quest"><header><strong>${profile.questIndex+1}. ${quest.title}</strong><b>${current} / ${quest.goal}</b></header><p>${quest.description}<br>Ricompensa: ◈ ${reward.coins||0} · ${reward.xp||0} XP</p><div class="bar"><i style="width:${current/quest.goal*100}%"></i></div><small class="explore-count">Luoghi scoperti: ${(profile.discoveredLandmarks||[]).length}/${profile.landmarkTotal||landmarks.length}</small></article>`}
+function renderExploration(){const found=new Set(profile?.discoveredLandmarks||[]);const list=$('#landmark-list');if(!list)return;list.innerHTML=landmarks.map(mark=>`<article class="landmark-item ${found.has(mark.id)?'found':''}"><span>${found.has(mark.id)?'◆':'?'}</span><div><strong>${found.has(mark.id)?mark.name:'Luogo inesplorato'}</strong><p>${found.has(mark.id)?`${mark.type} · coordinate ${mark.x}, ${mark.z}`:'Esplora il mondo per rivelarlo'}</p></div></article>`).join('')}
+
+function updateNavigation(now){
+  if(!camera||!profile)return;const quest=(profile.quests||[])[profile.questIndex||0],direction=$('#quest-direction');
+  if(quest){direction.classList.remove('hidden');direction.querySelector('b').textContent=quest.title;const marker=quest.marker;if(marker){const dx=marker.x-camera.position.x,dz=marker.z-camera.position.z,distance=Math.round(Math.hypot(dx,dz));const yaw=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ').y;const relative=Math.atan2(dx,dz)-yaw;direction.querySelector(':scope > span').textContent='▲';direction.querySelector(':scope > span').style.transform=`rotate(${relative}rad)`;direction.querySelector('em').textContent=`${distance} m`;}else{direction.querySelector(':scope > span').textContent='◆';direction.querySelector(':scope > span').style.transform='';direction.querySelector('em').textContent='MISSIONE';}}
+  else direction.classList.add('hidden');
+  if(now-lastMinimapUpdate<220)return;lastMinimapUpdate=now;drawMinimap();
+}
+
+function drawMinimap(){
+  const canvas=$('#minimap-canvas');if(!canvas||!camera)return;const ctx=canvas.getContext('2d'),size=canvas.width,center=size/2,scale=2.35,radius=34;ctx.clearRect(0,0,size,size);ctx.save();ctx.translate(center,center);const yaw=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ').y;ctx.rotate(yaw);
+  for(let dx=-radius;dx<=radius;dx+=2)for(let dz=-radius;dz<=radius;dz+=2){const wx=Math.round(camera.position.x+dx),wz=Math.round(camera.position.z+dz),h=terrainHeight(wx,wz);ctx.fillStyle=h<=WATER_LEVEL?'#2d8294':h>=11?'#d9e8e7':h<7?'#c5ad68':isTreeOrigin(wx,wz)?'#245f39':'#4b8050';ctx.fillRect(dx*scale-2,dz*scale-2,5,5)}
+  const dot=(x,z,color,r=3)=>{const dx=(x-camera.position.x)*scale,dz=(z-camera.position.z)*scale;if(Math.hypot(dx,dz)>center-5)return;ctx.fillStyle=color;ctx.beginPath();ctx.arc(dx,dz,r,0,Math.PI*2);ctx.fill()};
+  for(const model of remotePlayers.values())dot(model.position.x,model.position.z,'#6ac7ef',3);for(const model of mobs.values())dot(model.position.x,model.position.z,model.userData.boss?'#ff4360':'#e78663',model.userData.boss?5:2);for(const model of npcs.values())dot(model.position.x,model.position.z,'#6de1ad',3);
+  const found=new Set(profile.discoveredLandmarks||[]);for(const landmark of landmarks)if(found.has(landmark.id))dot(landmark.x,landmark.z,'#f1bf59',3);
+  const quest=(profile.quests||[])[profile.questIndex||0];if(quest?.marker)dot(quest.marker.x,quest.marker.z,'#fff19a',5);ctx.restore();ctx.fillStyle='#ffffff';ctx.beginPath();ctx.moveTo(center,center-7);ctx.lineTo(center-5,center+5);ctx.lineTo(center+5,center+5);ctx.closePath();ctx.fill();$('#minimap-coords').textContent=`${Math.round(camera.position.x)}, ${Math.round(camera.position.z)}`;
+}
 function renderClans(){if(!profile)return;$('#clan-status').textContent=profile.clan?`Sei membro di ${profile.clan}. Il nome del clan appare sopra ogni compagno.`:'Crea una compagnia o unisciti a un clan esistente.';$('#clan-create').classList.toggle('hidden',Boolean(profile.clan));$('#leave-clan').classList.toggle('hidden',!profile.clan);$('#clan-list').innerHTML=clans.map(clan=>`<article class="clan-item"><strong>${clan.name}</strong><p>${clan.members.length}/12 membri · Leader ${clan.leader}</p>${!profile.clan?`<button data-join="${clan.name}">Unisciti</button>`:''}</article>`).join('')||'<p class="panel-copy">Non esistono ancora clan: puoi fondare il primo.</p>';$$('[data-join]').forEach(button=>button.onclick=()=>socket.emit('clanAction',{action:'join',name:button.dataset.join}))}
 
 function openPanel(id){panelOpen=true;cancelMining();controls?.unlock();$('#panel-scrim').classList.remove('hidden');$$('.game-panel').forEach(panel=>panel.classList.toggle('open',panel.id===id));$('#pause-overlay').classList.add('hidden');sound('ui')}
@@ -673,11 +726,11 @@ function findEntityRoot(object){let current=object;while(current){if(current.use
 function updateTarget() {
   if(!worldReady||!controls.isLocked)return;
   raycaster.setFromCamera(new THREE.Vector2(0,0),camera);
-  const blockHits=raycaster.intersectObjects(blockMeshes,false);const entityHits=raycaster.intersectObjects([...mobs.values(),...dragons.values(),...lootBoxes.values(),...itemDrops.values()],true);
+  const blockHits=raycaster.intersectObjects(blockMeshes,false);const entityHits=raycaster.intersectObjects([...mobs.values(),...dragons.values(),...lootBoxes.values(),...itemDrops.values(),...npcs.values(),...chests.values()],true);
   const blockHit=blockHits[0];const entityHit=entityHits.find(hit=>findEntityRoot(hit.object));
   if(entityHit&&(!blockHit||entityHit.distance<blockHit.distance)){
-    const root=findEntityRoot(entityHit.object);currentTarget={kind:root.userData.entityType,id:root.userData.id,distance:entityHit.distance,owner:root.userData.owner,item:root.userData.item};selectionBox.visible=false;
-    $('#target-label').textContent=root.userData.entityType==='mob'?MOB_LABELS[root.userData.kind]:root.userData.entityType==='dragon'?'Drago cavalcabile':root.userData.entityType==='lootBox'?`Box di ${root.userData.owner}`:itemName(root.userData.item);return;
+    const root=findEntityRoot(entityHit.object);currentTarget={kind:root.userData.entityType,id:root.userData.id,distance:entityHit.distance,owner:root.userData.owner,item:root.userData.item,name:root.userData.name,claimed:root.userData.claimed};selectionBox.visible=false;
+    $('#target-label').textContent=root.userData.entityType==='mob'?MOB_LABELS[root.userData.kind]:root.userData.entityType==='dragon'?'Drago cavalcabile':root.userData.entityType==='lootBox'?`Box di ${root.userData.owner}`:root.userData.entityType==='npc'?root.userData.name:root.userData.entityType==='chest'?root.userData.name:itemName(root.userData.item);return;
   }
   if(blockHit&&blockHit.instanceId!==undefined){const position=blockHit.object.userData.positions[blockHit.instanceId];currentTarget={kind:'block',position,type:blockHit.object.userData.blockType,normal:blockHit.face.normal.clone(),distance:blockHit.distance};selectionBox.position.set(position.x,position.y,position.z);selectionBox.visible=true;$('#target-label').textContent=itemName(currentTarget.type);return}
   currentTarget=null;selectionBox.visible=false;$('#target-label').textContent='';
@@ -728,7 +781,11 @@ function animateEntities(dt,elapsed){
   for(const model of dragons.values()){model.position.lerp(model.userData.target,Math.min(1,dt*8));model.rotation.y=THREE.MathUtils.lerp(model.rotation.y,model.userData.targetYaw||0,dt*6);const wing=Math.sin(elapsed*6)*.45;model.userData.leftWing.rotation.z=wing;model.userData.rightWing.rotation.z=-wing;const d=model.position.distanceTo(camera.position);if(d<nearDistance){nearDistance=d;nearbyDragon=model.userData.id}}
   for(const model of lootBoxes.values()){model.position.lerp(model.userData.target,Math.min(1,dt*10));model.rotation.y=Math.sin(elapsed*.8)*.08}
   for(const model of itemDrops.values()){model.position.lerp(model.userData.target,Math.min(1,dt*10));model.rotation.y+=dt*1.5;model.position.y=model.userData.target.y+Math.sin(elapsed*2.4+model.position.x)*.1}
-  let interaction='';if(currentTarget?.kind==='lootBox')interaction=currentTarget.owner===profile?.name?'Recupera tutti i tuoi oggetti':`Raccogli il box di ${currentTarget.owner}`;else if(currentTarget?.kind==='itemDrop')interaction=`Raccogli ${itemName(currentTarget.item)}`;else if(currentTarget?.kind==='block'&&currentTarget.type==='lever')interaction='Aziona la leva';else if(mountedDragon)interaction='Scendi dal drago';else if(nearbyDragon)interaction='Cavalca il drago';
+  for(const model of npcs.values()){model.rotation.y=Math.atan2(camera.position.x-model.position.x,camera.position.z-model.position.z);model.position.y=model.userData.target.y+Math.sin(elapsed*1.7+model.position.x)*.025}
+  for(const model of chests.values()){model.rotation.y=Math.sin(elapsed*.65+model.position.x)*.06}
+  let nearestBoss=null,bossDistance=36;for(const model of mobs.values())if(model.userData.boss){const distance=model.position.distanceTo(camera.position);if(distance<bossDistance){bossDistance=distance;nearestBoss=model}}
+  const bossBar=$('#boss-bar');bossBar.classList.toggle('hidden',!nearestBoss);if(nearestBoss){bossBar.querySelector('strong').textContent=MOB_LABELS[nearestBoss.userData.kind];bossBar.querySelector('em').textContent=`${Math.max(0,Math.ceil(nearestBoss.userData.hp))} / ${nearestBoss.userData.maxHp}`;bossBar.querySelector(':scope > i').style.transform=`scaleX(${Math.max(0,nearestBoss.userData.hp/nearestBoss.userData.maxHp)})`}
+  let interaction='';if(currentTarget?.kind==='lootBox')interaction=currentTarget.owner===profile?.name?'Recupera tutti i tuoi oggetti':`Raccogli il box di ${currentTarget.owner}`;else if(currentTarget?.kind==='itemDrop')interaction=`Raccogli ${itemName(currentTarget.item)}`;else if(currentTarget?.kind==='npc')interaction=`Parla con ${currentTarget.name}`;else if(currentTarget?.kind==='chest')interaction=currentTarget.claimed?'Tesoro già raccolto':'Apri il tesoro';else if(currentTarget?.kind==='block'&&currentTarget.type==='lever')interaction='Aziona la leva';else if(mountedDragon)interaction='Scendi dal drago';else if(nearbyDragon)interaction='Cavalca il drago';
   $('#interaction-hint').classList.toggle('hidden',!interaction);if(interaction)$('#interaction-hint span').textContent=interaction;
   for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.userData.life-=dt;p.userData.velocity.y-=4*dt;p.position.addScaledVector(p.userData.velocity,dt);p.scale.setScalar(Math.max(0,p.userData.life));if(p.userData.life<=0){scene.remove(p);p.geometry.dispose();p.material.dispose();particles.splice(i,1)}}
 }
@@ -746,7 +803,7 @@ function emitMovement(now) {
   if(!self||now-lastMoveSent<80)return;lastMoveSent=now;const euler=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ');socket.emit('move',{x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw:euler.y,pitch:euler.x});
 }
 function animate(now=0) {
-  requestAnimationFrame(animate);if(!scene)return;const dt=Math.min(clock.getDelta(),.05),elapsed=clock.elapsedTime;updateMovement(dt);updateTarget();updateMining(now);updateViewModel(dt,elapsed);animateEntities(dt,elapsed);updateSky();
+  requestAnimationFrame(animate);if(!scene)return;const dt=Math.min(clock.getDelta(),.05),elapsed=clock.elapsedTime;updateMovement(dt);updateTarget();updateMining(now);updateViewModel(dt,elapsed);animateEntities(dt,elapsed);updateSky();updateNavigation(now);
   const currentChunkX=Math.floor(camera.position.x/CHUNK_SIZE),currentChunkZ=Math.floor(camera.position.z/CHUNK_SIZE);if(worldReady&&(currentChunkX!==renderedChunkX||currentChunkZ!==renderedChunkZ))scheduleWorldRebuild();
   if(blockMaterials?.water?.uniforms)blockMaterials.water.uniforms.uTime.value=elapsed;
   for(const cloud of clouds){cloud.position.x+=cloud.userData.speed*dt;if(cloud.position.x-camera.position.x>75)cloud.position.x-=150}
@@ -759,9 +816,9 @@ function chatLine(data,system=false){const line=document.createElement('div');li
 function escapeHtml(text){const div=document.createElement('div');div.textContent=String(text);return div.innerHTML}
 
 function startGame(data) {
-  self=data.self;spawn=data.spawn;worldDay=data.worldDay;overrides=data.blocks||{};circuitPower=data.circuitPower||{};profile={...data.profile,quests:data.profile.quests||[]};recipes=data.recipes;shop=data.shop;clans=data.clans||[];
+  self=data.self;spawn=data.spawn;worldDay=data.worldDay;overrides=data.blocks||{};circuitPower=data.circuitPower||{};profile={...data.profile,quests:data.profile.quests||[]};recipes=data.recipes;shop=data.shop;clans=data.clans||[];landmarks=data.landmarks||[];
   $('#loading-screen').classList.add('active');$('#login-screen').classList.remove('active');$('#loading-copy').textContent='Sto preparando foreste, miniere e creature…';
-  initThree();setTimeout(()=>{buildWorld();syncPlayers(data.players);syncMobs(data.monsters);syncDragons(data.dragons);syncLootBoxes(data.lootBoxes||[]);syncItemDrops(data.itemDrops||[]);refreshProfile(profile);$('#loading-progress').style.width='100%';setTimeout(()=>{$('#loading-screen').classList.remove('active');$('#hud').classList.remove('hidden');gameStarted=true;controls.lock();toast('Benvenuto a Terranovaland. La piazza è sicura.','quest');sound('quest')},350)},60);animate();
+  initThree();setTimeout(()=>{buildWorld();syncPlayers(data.players);syncMobs(data.monsters);syncDragons(data.dragons);syncLootBoxes(data.lootBoxes||[]);syncItemDrops(data.itemDrops||[]);syncNpcs(data.npcs||[]);syncChests(data.chests||[]);refreshProfile(profile);$('#loading-progress').style.width='100%';setTimeout(()=>{$('#loading-screen').classList.remove('active');$('#hud').classList.remove('hidden');gameStarted=true;controls.lock();toast('Benvenuto a Terranovaland. Parla con Elda o parti all’esplorazione!','quest');sound('quest')},350)},60);animate();
 }
 
 $('#login-form').addEventListener('submit',event=>{event.preventDefault();ensureAudio();sound('ui');const name=$('#player-name').value.trim();$('#login-error').textContent='';if(name.length<2){$('#login-error').textContent='Inserisci almeno 2 caratteri.';return}localStorage.setItem('terranovaland-name',name);socket.emit('login',{name})});
@@ -770,7 +827,10 @@ $('#chat-form').addEventListener('submit',event=>{event.preventDefault();const i
 $('#clan-create').addEventListener('submit',event=>{event.preventDefault();const input=event.currentTarget.querySelector('input');if(input.value.trim())socket.emit('clanAction',{action:'create',name:input.value});input.value=''});
 $('#leave-clan').onclick=()=>socket.emit('clanAction',{action:'leave'});
 $$('[data-panel]').forEach(button=>button.onclick=()=>openPanel(button.dataset.panel));$$('.panel-close').forEach(button=>button.onclick=closePanels);$('#panel-scrim').onclick=closePanels;
-$('#resume-button').onclick=()=>controls.lock();$('#settings-button').onclick=()=>openPanel('settings-panel');$('#help-button').onclick=()=>{controls.unlock();$('#help-overlay').classList.remove('hidden');$('#pause-overlay').classList.add('hidden')};$('.modal-x').onclick=()=>{$('#help-overlay').classList.add('hidden');controls.lock()};$('#respawn-button').onclick=()=>socket.emit('respawn');
+$('#resume-button').onclick=()=>controls.lock();$('#settings-button').onclick=()=>openPanel('settings-panel');$('#help-button').onclick=()=>{controls.unlock();$('#help-overlay').classList.remove('hidden');$('#pause-overlay').classList.add('hidden')};$('#help-overlay .modal-x').onclick=()=>{$('#help-overlay').classList.add('hidden');controls.lock()};$('#respawn-button').onclick=()=>socket.emit('respawn');
+function closeNpcDialogue(){$('#npc-overlay').classList.add('hidden');if(gameStarted&&!dead)controls.lock()}
+function showNpcDialogue(data){controls.unlock();$('#pause-overlay').classList.add('hidden');$('#npc-name').textContent=data.npc.name;$('#npc-role').textContent=data.npc.role.toUpperCase();$('#npc-text').textContent=data.text;const quest=$('#npc-quest');quest.classList.toggle('hidden',!data.quest);if(data.quest)quest.innerHTML=`<b>${escapeHtml(data.quest.title)}</b><span>${escapeHtml(data.quest.description)}</span>`;$('#npc-overlay').classList.remove('hidden')}
+$('#npc-overlay .npc-close').onclick=closeNpcDialogue;$('#npc-continue').onclick=closeNpcDialogue;
 $('#toggle-quests').onclick=()=>{const quests=$('#quests');quests.classList.toggle('hidden');$('#toggle-quests').textContent=quests.classList.contains('hidden')?'+':'−'};
 
 for(const [selector,key,number] of [['#fov-setting','fov',true],['#sensitivity-setting','sensitivity',true],['#volume-setting','volume',true],['#quality-setting','quality',false],['#bob-setting','bob',false],['#ambient-setting','ambient',false]]){
@@ -786,9 +846,9 @@ addEventListener('keydown',event=>{
   if(['INPUT','SELECT'].includes(document.activeElement?.tagName))return;
   if(/^Digit[1-9]$/.test(event.code)){selectSlot(Number(event.code.slice(-1))-1);return}
   if(event.code==='Tab'){event.preventDefault();$('#inventory-panel').classList.contains('open')?closePanels():openPanel('inventory-panel')}
-  else if(event.code==='KeyI')openPanel('inventory-panel');else if(event.code==='KeyC')openPanel('craft-panel');else if(event.code==='KeyM')openPanel('shop-panel');else if(event.code==='KeyL')openPanel('clan-panel');else if(event.code==='KeyO')openPanel('settings-panel');else if(event.code==='KeyF')socket.emit('consume','bread');
+  else if(event.code==='KeyI')openPanel('inventory-panel');else if(event.code==='KeyC')openPanel('craft-panel');else if(event.code==='KeyM')openPanel('shop-panel');else if(event.code==='KeyL')openPanel('clan-panel');else if(event.code==='KeyO')openPanel('settings-panel');else if(event.code==='KeyP')openPanel('exploration-panel');else if(event.code==='KeyF')socket.emit('consume',profile?.inventory?.bread?'bread':'healingPotion');
   else if(event.code==='KeyE'){
-    if(currentTarget?.kind==='lootBox')socket.emit('interactLootBox',currentTarget.id);else if(currentTarget?.kind==='itemDrop')socket.emit('pickupItem',currentTarget.id);else if(currentTarget?.kind==='block'&&currentTarget.type==='lever')socket.emit('toggleCircuit',currentTarget.position);else if(mountedDragon||nearbyDragon)socket.emit('mountDragon',mountedDragon||nearbyDragon);
+    if(currentTarget?.kind==='lootBox')socket.emit('interactLootBox',currentTarget.id);else if(currentTarget?.kind==='itemDrop')socket.emit('pickupItem',currentTarget.id);else if(currentTarget?.kind==='npc')socket.emit('talkNpc',currentTarget.id);else if(currentTarget?.kind==='chest'&&!currentTarget.claimed)socket.emit('openChest',currentTarget.id);else if(currentTarget?.kind==='block'&&currentTarget.type==='lever')socket.emit('toggleCircuit',currentTarget.position);else if(mountedDragon||nearbyDragon)socket.emit('mountDragon',mountedDragon||nearbyDragon);
   }else keys.add(event.code);
 });
 addEventListener('keyup',event=>keys.delete(event.code));
@@ -804,12 +864,16 @@ socket.on('blockChanged',data=>{overrides[keyOf(data.x,data.y,data.z)]=data.type
 socket.on('circuitState',next=>{circuitPower=next||{};scheduleWorldRebuild()});
 socket.on('leverChanged',data=>{sound('ui');if(data.by===profile?.name)toast(data.active?'Circuito alimentato':'Circuito disattivato')});
 socket.on('lootBoxes',syncLootBoxes);socket.on('itemDrops',syncItemDrops);
+socket.on('npcDialogue',showNpcDialogue);
+socket.on('chestOpened',data=>{const model=chests.get(data.id);if(model)model.userData.claimed=true;toast(`${data.name}: +${data.coins} monete e nuovi oggetti`,'quest');sound('quest')});
+socket.on('landmarkDiscovered',data=>{toast(`Luogo scoperto: ${data.name} · +${data.xp} XP · +${data.coins} monete`,'quest');sound('quest')});
+socket.on('questProgress',()=>renderQuests());socket.on('questUnlocked',quest=>{toast(`Nuova missione: ${quest.title}`,'quest');sound('quest')});socket.on('campaignComplete',()=>{toast('Campagna completata: sei l’Eroe di Terranovaland!','quest');sound('quest')});
 socket.on('playerJoined',player=>syncPlayers([...remotePlayers.values()].map(model=>({id:model.userData.id,x:model.position.x,y:model.position.y+EYE_HEIGHT,z:model.position.z,yaw:model.rotation.y,name:model.userData.name,clan:model.userData.clan})).concat(player,self)));
 socket.on('playerMoved',player=>{const model=remotePlayers.get(player.id);if(model){model.userData.target.set(player.x,player.y-EYE_HEIGHT,player.z);model.userData.targetYaw=player.yaw}});
 socket.on('playerLeft',id=>{const model=remotePlayers.get(id);if(model){entityGroup.remove(model);remotePlayers.delete(id)}$('#online-count').textContent=`${remotePlayers.size+1} esploratori online`});
 socket.on('playerClan',data=>{if(data.id===self?.id)self.clan=data.clan});
 socket.on('worldTick',data=>{worldDay=data.day;syncMobs(data.monsters);syncDragons(data.dragons)});
-socket.on('monsterHit',data=>{const model=mobs.get(data.id);if(model){model.userData.hpBar.scale.x=Math.max(.001,data.hp/model.userData.maxHp);model.position.x+=(Math.random()-.5)*.25}});
+socket.on('monsterHit',data=>{const model=mobs.get(data.id);if(model){model.userData.hp=data.hp;model.userData.hpBar.scale.x=Math.max(.001,data.hp/model.userData.maxHp);model.position.x+=(Math.random()-.5)*.25}});
 socket.on('monsterDefeated',data=>{const model=mobs.get(data.id);if(model){burst(model.position,'#e6a34d');entityGroup.remove(model);mobs.delete(data.id)}if(data.by===profile?.name)sound('coin')});
 socket.on('monsterSpawned',mob=>syncMobs([...mobs.values()].map(model=>({id:model.userData.id,kind:model.userData.kind,x:model.position.x,y:model.position.y+.55,z:model.position.z,hp:model.userData.maxHp,maxHp:model.userData.maxHp,yaw:model.rotation.y})).concat(mob)));
 socket.on('dragons',syncDragons);

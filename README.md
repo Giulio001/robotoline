@@ -8,8 +8,10 @@ Terranovaland è un’avventura voxel multiplayer che funziona direttamente nel 
 - multiplayer in tempo reale con nomi, chat, animazioni e spawn comune;
 - scavo, costruzione, collisioni, corsa, salto e nove slot rapidi;
 - 15 materiali, minerali rari, strumenti, armi, crafting e inventario;
-- quattro famiglie di nemici con IA, difficoltà e ricompense differenti;
-- missioni, monete e mercato;
+- quattro famiglie di nemici, due boss con barra vita, drop, IA, difficoltà e ricompense differenti;
+- campagna progressiva di 15 missioni, NPC con dialoghi, XP, livelli, tesori e ricompense uniche;
+- otto luoghi da scoprire con ricompense persistenti, diario di esplorazione, bussola obiettivo e minimappa dinamica;
+- equipaggiamento indossabile, armatura, pozioni e mercato;
 - clan fino a 12 membri;
 - draghi condivisi che volano autonomamente e possono essere cavalcati;
 - circuiti di pietrarossa con polvere conduttrice, leve, lampade e pistoni;
@@ -101,8 +103,8 @@ Il nome scelto all’accesso identifica il profilo. Questa modalità è intenzio
 | `Shift` | Corre / scende in volo |
 | Click sinistro | Scava o attacca |
 | Click destro | Posiziona un blocco |
-| `E` | Cavalca o lascia un drago |
-| `F` | Mangia il pane |
+| `E` | Interagisce con NPC, tesori, oggetti, leve e draghi |
+| `F` | Usa pane o pozione curativa |
 | `I`, `C`, `M`, `L` | Inventario, crafting, mercato, clan |
 | `Tab` | Apre l’inventario personale |
 | Rotella mouse | Seleziona l’oggetto rapido e lo mostra in mano |
@@ -110,6 +112,7 @@ Il nome scelto all’accesso identifica il profilo. Questa modalità è intenzio
 | Click sinistro nell’inventario | Regala o getta un oggetto |
 | `T` oppure `Invio` | Chat |
 | `O` | Impostazioni |
+| `P` | Diario di esplorazione e luoghi scoperti |
 
 Quando un esploratore muore, il suo inventario e le monete vengono racchiusi in un box nel punto della sconfitta. Il proprietario può recuperare tutto con `E`; un altro giocatore può raccogliere il box, trasportarlo e posarlo vicino al proprietario.
 

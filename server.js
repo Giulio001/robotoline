@@ -29,7 +29,11 @@ const RECIPES = {
   redstoneWire: { label: 'Circuito di pietrarossa', cost: { redstone: 1 }, gives: { redstoneWire: 4 } },
   lever: { label: 'Leva', cost: { stone: 1, wood: 1 }, gives: { lever: 1 } },
   lamp: { label: 'Lampada alimentata', cost: { redstone: 3, crystal: 1 }, gives: { lamp: 1 } },
-  piston: { label: 'Pistone', cost: { planks: 3, stone: 4, iron: 1, redstone: 1 }, gives: { piston: 1 } }
+  piston: { label: 'Pistone', cost: { planks: 3, stone: 4, iron: 1, redstone: 1 }, gives: { piston: 1 } },
+  ironHelmet: { label: 'Elmo di ferro', cost: { iron: 5 }, gives: { ironHelmet: 1 } },
+  ironChestplate: { label: 'Corazza di ferro', cost: { iron: 8 }, gives: { ironChestplate: 1 } },
+  ironBoots: { label: 'Stivali di ferro', cost: { iron: 4 }, gives: { ironBoots: 1 } },
+  healingPotion: { label: 'Pozione curativa', cost: { crystal: 1, bread: 1 }, gives: { healingPotion: 2 } }
 };
 
 const SHOP = {
@@ -37,13 +41,27 @@ const SHOP = {
   woodPickaxe: { label: 'Piccone di legno', price: 35, gives: { woodPickaxe: 1 } },
   ironPickaxe: { label: 'Piccone di ferro', price: 180, gives: { ironPickaxe: 1 } },
   crystalSword: { label: 'Spada di cristallo', price: 420, gives: { crystalSword: 1 } },
-  dragonTreat: { label: 'Dono per draghi', price: 250, gives: { dragonTreat: 1 } }
+  dragonTreat: { label: 'Dono per draghi', price: 250, gives: { dragonTreat: 1 } },
+  healingPotion: { label: 'Pozione curativa', price: 45, gives: { healingPotion: 1 } },
+  ironHelmet: { label: 'Elmo di ferro', price: 130, gives: { ironHelmet: 1 } }
 };
 
 const QUESTS = [
-  { id: 'first_hunt', title: 'Difendi Terranovaland', description: 'Sconfiggi 5 creature ostili', type: 'kills', goal: 5, reward: 90 },
-  { id: 'deep_miner', title: 'Il richiamo della miniera', description: 'Scava 24 blocchi', type: 'mined', goal: 24, reward: 70 },
-  { id: 'artisan', title: 'Mani sapienti', description: 'Crea 4 oggetti', type: 'crafted', goal: 4, reward: 80 }
+  { id:'wood_call',title:'Il richiamo del bosco',description:'Taglia 4 blocchi di legno',event:'mine',target:'wood',goal:4,reward:{coins:20,xp:25,items:{planks:4}} },
+  { id:'true_pickaxe',title:'Un vero piccone',description:'Crea un piccone di pietra',event:'craft',target:'stonePickaxe',goal:1,reward:{coins:30,xp:35,items:{bread:2}} },
+  { id:'stone_sweat',title:'Pietra e sudore',description:'Estrai 12 blocchi di pietra',event:'mine',target:'stone',goal:12,reward:{coins:35,xp:45,items:{coal:2}} },
+  { id:'light_darkness',title:'Luce nell’oscurità',description:'Crea delle torce',event:'craft',target:'torch',goal:1,reward:{coins:40,xp:50,items:{iron:2}} },
+  { id:'lost_cartographer',title:'Il cartografo scomparso',description:'Raggiungi il Castello delle Vele',event:'visit',target:'castle',goal:1,marker:{x:24,z:24,label:'Castello delle Vele'},reward:{coins:60,xp:75,items:{mapFragment:1}} },
+  { id:'ancient_crystal',title:'Il cristallo antico',description:'Estrai un cristallo dalle profondità',event:'mine',target:'crystal',goal:1,reward:{coins:70,xp:90,items:{redstone:4}} },
+  { id:'signal_fire',title:'Accendi il segnale',description:'Attiva una leva collegata a un circuito',event:'circuit',target:'lever',goal:1,reward:{coins:60,xp:85,items:{lamp:2}} },
+  { id:'wild_hunt',title:'La caccia selvaggia',description:'Sconfiggi 5 creature',event:'kill',target:'any',goal:5,reward:{coins:80,xp:100,items:{healingPotion:2}} },
+  { id:'stone_beast',title:'La bestia rocciosa',description:'Sconfiggi un Golem antico',event:'kill',target:'golem',goal:1,reward:{coins:100,xp:125,items:{iron:5}} },
+  { id:'companions',title:'Una compagnia fidata',description:'Crea o raggiungi un clan',event:'clan',target:'any',goal:1,reward:{coins:80,xp:110,items:{gold:2}} },
+  { id:'outpost',title:'L’avamposto',description:'Posiziona 20 blocchi per costruire una base',event:'place',target:'any',goal:20,reward:{coins:90,xp:140,items:{brick:20}} },
+  { id:'sky_pact',title:'Il patto dei cieli',description:'Conquista la fiducia di un drago',event:'mount',target:'dragon',goal:1,reward:{coins:120,xp:170,items:{crystal:3}} },
+  { id:'buried_dungeon',title:'Il dungeon sepolto',description:'Trova l’ingresso del Dungeon d’Ossidiana',event:'visit',target:'dungeon',goal:1,marker:{x:-24,z:-24,label:'Dungeon d’Ossidiana'},reward:{coins:140,xp:200,items:{healingPotion:3}} },
+  { id:'ancient_guardian',title:'Il Guardiano Antico',description:'Sconfiggi il guardiano del dungeon',event:'kill',target:'ancientGuardian',goal:1,marker:{x:-24,z:-24,label:'Guardiano Antico'},reward:{coins:220,xp:300,items:{guardianBlade:1}} },
+  { id:'heart_corruption',title:'Il cuore della corruzione',description:'Sconfiggi il Drago del Vuoto',event:'kill',target:'voidDragon',goal:1,marker:{x:58,z:-54,label:'Picco della Corruzione'},reward:{coins:500,xp:600,items:{crownOfTerranova:1}} }
 ];
 
 function fract(value) {
@@ -66,14 +84,39 @@ function terrainHeight(x, z) {
 
 const SPAWN = Object.freeze({ x: 0, y: terrainHeight(0, 0) + 2.2, z: 0 });
 
+const NPCS = [
+  { id:'elda',name:'Elda',role:'Custode di Terranovaland',x:2,y:terrainHeight(2,0)+1.1,z:0,color:'#5fb98e' },
+  { id:'borin',name:'Borin',role:'Fabbro delle Colline',x:-3,y:terrainHeight(-3,2)+1.1,z:2,color:'#c98255' },
+  { id:'asha',name:'Asha',role:'Alchimista',x:4,y:terrainHeight(4,-3)+1.1,z:-3,color:'#9b78cf' },
+  { id:'lyra',name:'Lyra',role:'Cartografa reale',x:22,y:terrainHeight(24,24)+1.1,z:22,color:'#d4b458' },
+  { id:'kael',name:'Kael',role:'Custode dei draghi',x:11,y:terrainHeight(11,-13)+1.1,z:-13,color:'#4ca8b8' }
+];
+
+const WORLD_CHESTS = [
+  { id:'castle_vault',name:'Tesoro del Castello',x:24,y:terrainHeight(24,24)+1.1,z:27,loot:{coins:90,items:{gold:3,iron:4,mapFragment:1}} },
+  { id:'dungeon_heart',name:'Scrigno d’Ossidiana',x:-24,y:terrainHeight(-24,-24)-3.8,z:-24,loot:{coins:160,items:{crystal:4,redstone:8,healingPotion:2}} },
+  { id:'corrupt_cache',name:'Reliquiario Corrotto',x:55,y:terrainHeight(55,-52)+1.1,z:-52,loot:{coins:220,items:{gold:6,crystal:5,dragonTreat:1}} }
+];
+
+const LANDMARKS = [
+  { id:'mirror_lake',name:'Lago dello Specchio',type:'lago',x:-13,z:18,radius:8,reward:{coins:18,xp:30} },
+  { id:'silver_river',name:'Fiume d’Argento',type:'fiume',x:16,z:0,radius:6,reward:{coins:15,xp:25} },
+  { id:'castle_sails',name:'Castello delle Vele',type:'castello',x:24,z:24,radius:10,reward:{coins:35,xp:55} },
+  { id:'dragon_roost',name:'Rifugio di Auralis',type:'nido di draghi',x:13,z:-15,radius:9,reward:{coins:30,xp:45} },
+  { id:'obsidian_dungeon',name:'Dungeon d’Ossidiana',type:'dungeon',x:-24,z:-24,radius:9,reward:{coins:45,xp:70} },
+  { id:'frost_shrine',name:'Santuario del Gelo',type:'santuario',x:-56,z:40,radius:10,reward:{coins:40,xp:65} },
+  { id:'western_ruins',name:'Rovine dei Primi',type:'rovine',x:-40,z:8,radius:10,reward:{coins:32,xp:55} },
+  { id:'corruption_peak',name:'Picco della Corruzione',type:'picco',x:58,z:-54,radius:12,reward:{coins:65,xp:90} }
+];
+
 function defaultState() {
-  return { version: 3, worldSeed: 'TERRANOVA-3107', blocks: {}, profiles: {}, clans: {}, lootBoxes: {}, itemDrops: {}, levers: {}, circuitPower: {}, worldDay: 0.28 };
+  return { version: 4, worldSeed: 'TERRANOVA-3107', blocks: {}, profiles: {}, clans: {}, lootBoxes: {}, itemDrops: {}, levers: {}, circuitPower: {}, chestClaims: {}, worldDay: 0.28 };
 }
 
 function loadState() {
   try {
     const parsed = JSON.parse(fs.readFileSync(SAVE_FILE, 'utf8'));
-    return { ...defaultState(), ...parsed, blocks: parsed.blocks || {}, profiles: parsed.profiles || {}, clans: parsed.clans || {}, lootBoxes: parsed.lootBoxes || {}, itemDrops: parsed.itemDrops || {}, levers: parsed.levers || {}, circuitPower: parsed.circuitPower || {} };
+    return { ...defaultState(), ...parsed, blocks: parsed.blocks || {}, profiles: parsed.profiles || {}, clans: parsed.clans || {}, lootBoxes: parsed.lootBoxes || {}, itemDrops: parsed.itemDrops || {}, levers: parsed.levers || {}, circuitPower: parsed.circuitPower || {}, chestClaims: parsed.chestClaims || {} };
   } catch (error) {
     if (error.code !== 'ENOENT') console.error('Salvataggio non leggibile, avvio un mondo nuovo:', error.message);
     return defaultState();
@@ -110,10 +153,18 @@ function freshProfile(name) {
     name,
     coins: 35,
     health: 100,
+    maxHealth: 100,
+    level: 1,
+    xp: 0,
     inventory: { grass: 12, dirt: 8, wood: 6, stone: 3, bread: 2, woodPickaxe: 1 },
+    equipment: { helmet: null, chest: null, boots: null },
+    questIndex: 0,
+    questProgress: {},
+    completedQuests: [],
+    discoveredLandmarks: [],
     starterGranted: true,
     carriedBoxes: [],
-    stats: { kills: 0, mined: 0, crafted: 0, deaths: 0 },
+    stats: { kills: 0, mined: 0, crafted: 0, placed: 0, bosses: 0, chests: 0, discoveries: 0, deaths: 0 },
     claimedQuests: [],
     clan: null,
     lastSeen: Date.now()
@@ -125,7 +176,17 @@ function publicProfile(profile) {
     name: profile.name,
     coins: profile.coins,
     health: profile.health,
+    maxHealth: profile.maxHealth,
+    level: profile.level,
+    xp: profile.xp,
+    xpNext: 100 + profile.level * 75,
     inventory: profile.inventory,
+    equipment: profile.equipment,
+    questIndex: profile.questIndex,
+    questProgress: profile.questProgress,
+    completedQuests: profile.completedQuests,
+    discoveredLandmarks: profile.discoveredLandmarks || [],
+    landmarkTotal: LANDMARKS.length,
     stats: profile.stats,
     claimedQuests: profile.claimedQuests,
     clan: profile.clan,
@@ -144,7 +205,10 @@ function addItems(profile, items) {
 function removeItems(profile, items) {
   for (const [item, amount] of Object.entries(items)) {
     profile.inventory[item] = Math.max(0, (profile.inventory[item] || 0) - amount);
-    if (!profile.inventory[item]) delete profile.inventory[item];
+    if (!profile.inventory[item]) {
+      delete profile.inventory[item];
+      for (const slot of Object.keys(profile.equipment || {})) if (profile.equipment[slot] === item) profile.equipment[slot] = null;
+    }
   }
 }
 
@@ -160,7 +224,9 @@ const MONSTER_KINDS = {
   slime: { hp: 30, damage: 7, speed: 1.15, coins: [4, 10], drop: 'coal' },
   boar: { hp: 48, damage: 10, speed: 1.8, coins: [7, 14], drop: 'iron' },
   golem: { hp: 85, damage: 16, speed: 0.72, coins: [14, 25], drop: 'gold' },
-  wraith: { hp: 58, damage: 13, speed: 1.35, coins: [11, 20], drop: 'crystal' }
+  wraith: { hp: 58, damage: 13, speed: 1.35, coins: [11, 20], drop: 'crystal' },
+  ancientGuardian: { hp: 420, damage: 24, speed: .68, coins: [140, 190], drop: 'guardianCore', boss: true, xp: 260 },
+  voidDragon: { hp: 720, damage: 31, speed: 1.25, coins: [280, 380], drop: 'voidScale', boss: true, xp: 500 }
 };
 
 function randomWorldPosition(minDistance = 10, center = { x: 0, z: 0 }) {
@@ -181,9 +247,20 @@ function spawnMonster(kind, center) {
   return monster;
 }
 
+function spawnBoss(kind) {
+  const stats = MONSTER_KINDS[kind];
+  const position = kind === 'ancientGuardian'
+    ? { x: -24, y: terrainHeight(-24, -24) - 3.8, z: -24 }
+    : { x: 58, y: terrainHeight(58, -54) + 1.3, z: -54 };
+  const monster = { id: `boss_${kind}`, kind, ...position, hp: stats.hp, maxHp: stats.hp, yaw: 0, target: null, lastAttack: 0, boss: true };
+  monsters.set(monster.id, monster);
+  return monster;
+}
+
 function ensurePopulation() {
-  const kinds = Object.keys(MONSTER_KINDS);
-  while (monsters.size < 20) spawnMonster(kinds[Math.floor(Math.random() * kinds.length)]);
+  const kinds = Object.keys(MONSTER_KINDS).filter(kind => !MONSTER_KINDS[kind].boss);
+  while ([...monsters.values()].filter(monster => !MONSTER_KINDS[monster.kind].boss).length < 20) spawnMonster(kinds[Math.floor(Math.random() * kinds.length)]);
+  for (const kind of ['ancientGuardian', 'voidDragon']) if (![...monsters.values()].some(monster => monster.kind === kind)) spawnBoss(kind);
   if (!dragons.size) {
     const dragonPositions = [{ x: 13, z: -15 }, { x: -22, z: 18 }];
     dragonPositions.forEach((position, index) => dragons.set(`dragon_${index + 1}`, {
@@ -271,6 +348,7 @@ function createDeathBox(player, profile) {
   const box = { id: randomId('loot'), owner: profile.name, ...position, items, coins: profile.coins || 0, holder: null, createdAt: Date.now() };
   state.lootBoxes[box.id] = box;
   profile.inventory = {};
+  profile.equipment = { helmet: null, chest: null, boots: null };
   profile.carriedBoxes = [];
   profile.coins = 0;
   return box;
@@ -301,7 +379,7 @@ function serializeClans() {
 }
 
 function sendProfile(socket, profile, message) {
-  socket.emit('profile', { ...publicProfile(profile), quests: QUESTS, message });
+  if (socket) socket.emit('profile', { ...publicProfile(profile), quests: QUESTS, message });
 }
 
 function distance(a, b) {
@@ -312,14 +390,56 @@ function validCoordinate(value) {
   return Number.isInteger(value) && value >= -WORLD_LIMIT && value <= WORLD_LIMIT;
 }
 
-function completeQuests(socket, profile) {
-  for (const quest of QUESTS) {
-    if (!profile.claimedQuests.includes(quest.id) && (profile.stats[quest.type] || 0) >= quest.goal) {
-      profile.claimedQuests.push(quest.id);
-      profile.coins += quest.reward;
-      socket.emit('toast', { type: 'quest', text: `Missione completata: ${quest.title} · +${quest.reward} monete` });
-    }
+function activeQuest(profile) {
+  return QUESTS[profile.questIndex || 0] || null;
+}
+
+function grantXp(socket, profile, amount) {
+  profile.xp += amount;
+  let next = 100 + profile.level * 75;
+  while (profile.xp >= next) {
+    profile.xp -= next;
+    profile.level += 1;
+    profile.maxHealth = 100 + (profile.level - 1) * 5;
+    profile.health = profile.maxHealth;
+    socket?.emit('toast', { type: 'level', text: `Livello ${profile.level}! Vita massima aumentata.` });
+    next = 100 + profile.level * 75;
   }
+}
+
+function advanceQuest(socket, profile, event, target = 'any', amount = 1) {
+  const quest = activeQuest(profile);
+  if (!quest || quest.event !== event || (quest.target !== 'any' && quest.target !== target)) return false;
+  const current = Math.min(quest.goal, (profile.questProgress[quest.id] || 0) + amount);
+  profile.questProgress[quest.id] = current;
+  if (current < quest.goal) {
+    socket?.emit('questProgress', { id: quest.id, current, goal: quest.goal });
+    return true;
+  }
+  profile.completedQuests.push(quest.id);
+  profile.questIndex += 1;
+  profile.coins += quest.reward.coins || 0;
+  addItems(profile, quest.reward.items || {});
+  grantXp(socket, profile, quest.reward.xp || 0);
+  socket?.emit('toast', { type: 'quest', text: `Missione completata: ${quest.title} · +${quest.reward.coins || 0} monete · +${quest.reward.xp || 0} XP` });
+  const nextQuest = activeQuest(profile);
+  if (nextQuest) socket?.emit('questUnlocked', nextQuest);
+  else socket?.emit('campaignComplete', { title: 'Eroe di Terranovaland' });
+  sendProfile(socket, profile);
+  persistSoon();
+  return true;
+}
+
+function npcDialogue(npc, profile) {
+  const quest = activeQuest(profile);
+  const hints = {
+    elda: quest ? `La tua missione è “${quest.title}”. ${quest.description}. Ogni passo ti avvicina al cuore di Terranovaland.` : 'Hai spezzato la corruzione. Terranovaland ricorderà il tuo nome.',
+    borin: 'Un buon equipaggiamento decide chi torna dal dungeon. Ferro per l’armatura, cristallo per le armi: non risparmiare sulla corazza.',
+    asha: 'Le pozioni curative richiedono cristallo e pane. Portane almeno tre quando scendi nel Dungeon d’Ossidiana.',
+    lyra: quest?.marker ? `Ho segnato ${quest.marker.label} sulla tua bussola. Segui l’indicatore dorato.` : 'I castelli custodiscono tesori, ma le rovine più silenziose nascondono spesso i pericoli peggiori.',
+    kael: 'I draghi non sono cavalcature comuni. Offri loro un Dono per draghi e conquistane la fiducia prima di salire in quota.'
+  };
+  return { npc, text: hints[npc.id], quest: quest ? { title: quest.title, description: quest.description, marker: quest.marker } : null };
 }
 
 io.on('connection', socket => {
@@ -339,11 +459,20 @@ io.on('connection', socket => {
     profile.name = name;
     profile.inventory ||= {};
     profile.carriedBoxes ||= [];
+    profile.level ||= 1;
+    profile.xp ||= 0;
+    profile.maxHealth ||= 100 + (profile.level - 1) * 5;
+    profile.equipment ||= { helmet: null, chest: null, boots: null };
+    profile.questIndex ||= 0;
+    profile.questProgress ||= {};
+    profile.completedQuests ||= [];
+    profile.discoveredLandmarks ||= [];
+    profile.stats = { kills: 0, mined: 0, crafted: 0, placed: 0, bosses: 0, chests: 0, discoveries: 0, deaths: 0, ...(profile.stats || {}) };
     if (!profile.starterGranted) {
       if (!['woodPickaxe', 'stonePickaxe', 'ironPickaxe'].some(tool => profile.inventory[tool] > 0)) profile.inventory.woodPickaxe = 1;
       profile.starterGranted = true;
     }
-    profile.health = Math.max(1, profile.health || 100);
+    profile.health = Math.max(1, Math.min(profile.maxHealth, profile.health || profile.maxHealth));
     profile.lastSeen = Date.now();
     state.profiles[key] = profile;
     const player = { id: socket.id, socketId: socket.id, name, x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: 0, pitch: 0, health: profile.health, clan: profile.clan, mountedDragon: null, lastMoveAt: Date.now(), lastAttackAt: 0 };
@@ -361,6 +490,9 @@ io.on('connection', socket => {
       lootBoxes: groundLootBoxes(),
       itemDrops: groundItemDrops(),
       circuitPower: state.circuitPower,
+      npcs: NPCS,
+      chests: WORLD_CHESTS.map(chest => ({ ...chest, loot: undefined, claimed: Boolean(state.chestClaims[chest.id]?.includes(key)) })),
+      landmarks: LANDMARKS.map(({ reward, ...landmark }) => landmark),
       clans: serializeClans(),
       profile: { ...publicProfile(profile), quests: QUESTS },
       recipes: RECIPES,
@@ -382,6 +514,19 @@ io.on('connection', socket => {
     const maxTravel = player.mountedDragon ? 38 * elapsed + 2 : PLAYER_SPEED_LIMIT * elapsed + 1.2;
     if (distance(player, next) > maxTravel) return;
     Object.assign(player, next, { yaw: Number(data.yaw) || 0, pitch: Number(data.pitch) || 0, lastMoveAt: now });
+    const profile = state.profiles[profileKey(player.name)];
+    const quest = activeQuest(profile);
+    if (quest?.event === 'visit' && quest.marker && Math.hypot(player.x - quest.marker.x, player.z - quest.marker.z) <= 8) advanceQuest(socket, profile, 'visit', quest.target);
+    const discovery = LANDMARKS.find(landmark => !profile.discoveredLandmarks.includes(landmark.id) && Math.hypot(player.x - landmark.x, player.z - landmark.z) <= landmark.radius);
+    if (discovery) {
+      profile.discoveredLandmarks.push(discovery.id);
+      profile.stats.discoveries = profile.discoveredLandmarks.length;
+      profile.coins += discovery.reward.coins;
+      grantXp(socket, profile, discovery.reward.xp);
+      socket.emit('landmarkDiscovered', { id: discovery.id, name: discovery.name, type: discovery.type, coins: discovery.reward.coins, xp: discovery.reward.xp, current: profile.discoveredLandmarks.length, total: LANDMARKS.length });
+      sendProfile(socket, profile);
+      persistSoon();
+    }
     if (player.mountedDragon) {
       const dragon = dragons.get(player.mountedDragon);
       if (dragon) Object.assign(dragon, next, { y: next.y - 1.1, yaw: player.yaw });
@@ -406,7 +551,7 @@ io.on('connection', socket => {
     if (CIRCUIT_TYPES.has(block)) { delete state.levers[blockKey]; recalculateCircuits(); }
     addItems(profile, { [block]: 1 });
     profile.stats.mined += 1;
-    completeQuests(socket, profile);
+    advanceQuest(socket, profile, 'mine', block);
     io.emit('blockChanged', { ...position, type: 0, by: player.name });
     sendProfile(socket, profile);
     persistSoon();
@@ -425,6 +570,8 @@ io.on('connection', socket => {
     if (type === 'lever') state.levers[blockKey] = false;
     if (CIRCUIT_TYPES.has(type)) recalculateCircuits();
     removeItems(profile, { [type]: 1 });
+    profile.stats.placed += 1;
+    advanceQuest(socket, profile, 'place', type);
     io.emit('blockChanged', { ...position, type, by: player.name });
     sendProfile(socket, profile);
     persistSoon();
@@ -441,6 +588,8 @@ io.on('connection', socket => {
     let damage = 8;
     if (held === 'stoneSword' && profile.inventory.stoneSword) damage = 18;
     if (held === 'crystalSword' && profile.inventory.crystalSword) damage = 34;
+    if (held === 'guardianBlade' && profile.inventory.guardianBlade) damage = 52;
+    damage += Math.floor((profile.level - 1) * 1.5);
     monster.hp -= damage;
     monster.target = player.id;
     io.emit('monsterHit', { id: monster.id, hp: monster.hp, damage, by: player.name });
@@ -449,13 +598,16 @@ io.on('connection', socket => {
       const earned = Math.floor(stats.coins[0] + Math.random() * (stats.coins[1] - stats.coins[0] + 1));
       profile.coins += earned;
       profile.stats.kills += 1;
+      if (stats.boss) profile.stats.bosses += 1;
       if (Math.random() < 0.7) addItems(profile, { [stats.drop]: 1 });
       monsters.delete(monster.id);
       io.emit('monsterDefeated', { id: monster.id, by: player.name, coins: earned });
       socket.emit('toast', { type: 'coin', text: `Creatura sconfitta · +${earned} monete` });
-      completeQuests(socket, profile);
+      grantXp(socket, profile, stats.xp || (6 + Math.floor(stats.hp / 12)));
+      advanceQuest(socket, profile, 'kill', monster.kind);
       const respawnCenter = { x: player.x, z: player.z };
-      setTimeout(() => { const next = spawnMonster(monster.kind, respawnCenter); io.emit('monsterSpawned', next); }, 5000);
+      const respawnDelay = stats.boss ? 180_000 : 5000;
+      setTimeout(() => { const next = stats.boss ? spawnBoss(monster.kind) : spawnMonster(monster.kind, respawnCenter); io.emit('monsterSpawned', next); }, respawnDelay);
       sendProfile(socket, profile);
       persistSoon();
     }
@@ -469,7 +621,7 @@ io.on('connection', socket => {
     removeItems(profile, recipe.cost);
     addItems(profile, recipe.gives);
     profile.stats.crafted += 1;
-    completeQuests(socket, profile);
+    advanceQuest(socket, profile, 'craft', String(recipeId));
     sendProfile(socket, profile, `${recipe.label} creato`);
     persistSoon();
   });
@@ -488,12 +640,23 @@ io.on('connection', socket => {
   socket.on('consume', item => {
     const profile = key && state.profiles[key];
     const player = players.get(socket.id);
-    if (!profile || !player || item !== 'bread' || !(profile.inventory.bread > 0) || profile.health >= 100) return;
-    removeItems(profile, { bread: 1 });
-    profile.health = Math.min(100, profile.health + 28);
+    if (!profile || !player || !['bread', 'healingPotion'].includes(item) || !(profile.inventory[item] > 0) || profile.health >= profile.maxHealth) return;
+    removeItems(profile, { [item]: 1 });
+    profile.health = Math.min(profile.maxHealth, profile.health + (item === 'healingPotion' ? 65 : 28));
     player.health = profile.health;
     sendProfile(socket, profile, 'Energia recuperata');
     socket.emit('health', profile.health);
+    persistSoon();
+  });
+
+  socket.on('equipItem', item => {
+    const profile = key && state.profiles[key];
+    item = cleanText(item, 32);
+    if (!profile || !(profile.inventory[item] > 0)) return;
+    const slot = item.includes('Helmet') ? 'helmet' : item.includes('Chestplate') ? 'chest' : item.includes('Boots') ? 'boots' : null;
+    if (!slot) return;
+    profile.equipment[slot] = profile.equipment[slot] === item ? null : item;
+    sendProfile(socket, profile, profile.equipment[slot] ? `${item} indossato` : `${item} rimosso`);
     persistSoon();
   });
 
@@ -504,7 +667,33 @@ io.on('connection', socket => {
     if (!player || state.blocks[blockKey] !== 'lever' || distance(player, position) > 5) return;
     state.levers[blockKey] = !state.levers[blockKey];
     recalculateCircuits();
+    if (state.levers[blockKey]) advanceQuest(socket, state.profiles[key], 'circuit', 'lever');
     io.emit('leverChanged', { ...position, active: state.levers[blockKey], by: player.name });
+    persistSoon();
+  });
+
+  socket.on('talkNpc', npcId => {
+    const player = players.get(socket.id);
+    const profile = key && state.profiles[key];
+    const npc = NPCS.find(item => item.id === String(npcId));
+    if (!player || !profile || !npc || distance(player, npc) > 5) return;
+    socket.emit('npcDialogue', npcDialogue(npc, profile));
+  });
+
+  socket.on('openChest', chestId => {
+    const player = players.get(socket.id);
+    const profile = key && state.profiles[key];
+    const chest = WORLD_CHESTS.find(item => item.id === String(chestId));
+    if (!player || !profile || !chest || distance(player, chest) > 5) return;
+    state.chestClaims[chest.id] ||= [];
+    if (state.chestClaims[chest.id].includes(key)) return socket.emit('toast', { type: 'danger', text: 'Hai già raccolto questo tesoro.' });
+    state.chestClaims[chest.id].push(key);
+    profile.coins += chest.loot.coins;
+    addItems(profile, chest.loot.items);
+    profile.stats.chests += 1;
+    grantXp(socket, profile, 45);
+    sendProfile(socket, profile);
+    socket.emit('chestOpened', { id: chest.id, name: chest.name, coins: chest.loot.coins, items: chest.loot.items });
     persistSoon();
   });
 
@@ -603,6 +792,7 @@ io.on('connection', socket => {
     removeItems(profile, { dragonTreat: 1 });
     dragon.rider = player.id;
     player.mountedDragon = dragon.id;
+    advanceQuest(socket, profile, 'mount', 'dragon');
     socket.emit('dragonMounted', { id: dragon.id, name: dragon.name });
     sendProfile(socket, profile);
     io.emit('dragons', [...dragons.values()]);
@@ -639,6 +829,7 @@ io.on('connection', socket => {
       profile.clan = null;
     }
     player.clan = profile.clan;
+    if (profile.clan) advanceQuest(socket, profile, 'clan', 'any');
     sendProfile(socket, profile);
     io.emit('clans', serializeClans());
     io.emit('playerClan', { id: player.id, clan: player.clan });
@@ -656,9 +847,9 @@ io.on('connection', socket => {
     const player = players.get(socket.id);
     const profile = key && state.profiles[key];
     if (!player || !profile || profile.health > 0) return;
-    Object.assign(player, SPAWN, { health: 100, mountedDragon: null });
-    profile.health = 100;
-    socket.emit('respawned', { ...SPAWN, health: 100 });
+    Object.assign(player, SPAWN, { health: profile.maxHealth, mountedDragon: null });
+    profile.health = profile.maxHealth;
+    socket.emit('respawned', { ...SPAWN, health: profile.maxHealth });
     sendProfile(socket, profile);
     persistSoon();
   });
@@ -707,14 +898,17 @@ function updateWorld() {
       if (closestDistance > 1.45) {
         monster.x += Math.sin(angle) * stats.speed * dt;
         monster.z += Math.cos(angle) * stats.speed * dt;
-        monster.y = terrainHeight(Math.round(monster.x), Math.round(monster.z)) + 1.1;
+        const ground = terrainHeight(Math.round(monster.x), Math.round(monster.z));
+        monster.y = monster.kind === 'ancientGuardian' ? terrainHeight(-24, -24) - 3.8 : ground + (monster.kind === 'voidDragon' ? 5 + Math.sin(now / 650) * 1.2 : 1.1);
       } else if (now - monster.lastAttack > 1100) {
         monster.lastAttack = now;
-        closest.health = Math.max(0, closest.health - stats.damage);
         const profile = state.profiles[profileKey(closest.name)];
+        const defense = profile ? (profile.equipment?.helmet ? 3 : 0) + (profile.equipment?.chest ? 7 : 0) + (profile.equipment?.boots ? 3 : 0) : 0;
+        const receivedDamage = Math.max(2, stats.damage - defense);
+        closest.health = Math.max(0, closest.health - receivedDamage);
         if (profile) profile.health = closest.health;
         io.to(closest.socketId).emit('health', closest.health);
-        io.to(closest.socketId).emit('playerDamaged', { amount: stats.damage, source: monster.kind });
+        io.to(closest.socketId).emit('playerDamaged', { amount: receivedDamage, source: monster.kind });
         if (closest.health === 0 && profile) {
           profile.stats.deaths += 1;
           createDeathBox(closest, profile);
@@ -768,4 +962,4 @@ if (require.main === module) {
   process.on('SIGTERM', shutdown);
 }
 
-module.exports = { server, terrainHeight, SPAWN, RECIPES, SHOP, freshProfile, updateDragonFlight, createDeathBox };
+module.exports = { server, terrainHeight, SPAWN, RECIPES, SHOP, QUESTS, LANDMARKS, freshProfile, activeQuest, advanceQuest, updateDragonFlight, createDeathBox };
