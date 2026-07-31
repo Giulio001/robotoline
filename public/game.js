@@ -4,7 +4,7 @@ import { PointerLockControls } from '/vendor/PointerLockControls.js';
 const socket = window.io({ transports: ['websocket', 'polling'] });
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
-const WORLD_LIMIT = 8192;
+const WORLD_LIMIT = 1_000_000;
 const CHUNK_SIZE = 16;
 const WATER_LEVEL = 6;
 const EYE_HEIGHT = 1.65;

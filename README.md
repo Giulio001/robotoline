@@ -6,7 +6,7 @@ La difficoltà predefinita è **Avventura, medio-bassa**: i nemici richiedono at
 
 ## Cosa include
 
-- mondo 3D procedurale largo oltre 16 km, generato e caricato continuamente a chunk, con sei biomi distinti, vegetazione dedicata, foreste, deserti, paludi, gelo, zone vulcaniche, fiumi, laghi, miniere e ciclo giorno/notte;
+- mondo 3D proceduralmente esteso per oltre due milioni di blocchi, generato e caricato continuamente a chunk, con sei biomi distinti, vegetazione dedicata, foreste, deserti, paludi, gelo, zone vulcaniche, fiumi, laghi, miniere e ciclo giorno/notte;
 - multiplayer in tempo reale con nomi, chat, animazioni e spawn comune;
 - scavo, costruzione, collisioni, corsa, salto e nove slot rapidi;
 - 15 materiali, minerali rari, strumenti, armi, crafting e inventario;
