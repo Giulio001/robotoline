@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { terrainHeight, SPAWN, RECIPES, SHOP, QUESTS, LANDMARKS, freshProfile, activeQuest, advanceQuest, updateDragonFlight, createDeathBox } = require('../server');
+const { terrainHeight, biomeAt, SPAWN, RECIPES, SHOP, QUESTS, LANDMARKS, SKILLS, freshProfile, activeQuest, advanceQuest, rollMonsterLoot, maxHealthFor, updateDragonFlight, createDeathBox } = require('../server');
 
 test('lo spawn comune è sopra il terreno e deterministico', () => {
   assert.equal(SPAWN.x, 0);
@@ -48,6 +48,22 @@ test('il mondo offre luoghi d’esplorazione distinti e persistenti', () => {
   assert.deepEqual(profile.discoveredLandmarks, []);
   assert.ok(LANDMARKS.some(landmark => landmark.type === 'dungeon'));
   assert.ok(LANDMARKS.some(landmark => landmark.type === 'lago'));
+});
+
+test('la generazione distingue sei biomi e mantiene lo spawn accogliente', () => {
+  const biomes = new Set();
+  for (let x = -200; x <= 200; x += 8) for (let z = -200; z <= 200; z += 8) biomes.add(biomeAt(x, z));
+  assert.deepEqual([...biomes].sort(), ['desert', 'forest', 'frost', 'meadow', 'swamp', 'volcanic']);
+  assert.equal(biomeAt(0, 0), 'meadow');
+});
+
+test('loot e abilità applicano rarità e bonus in modo deterministico', () => {
+  const profile = freshProfile('Specialista');
+  assert.equal(Object.keys(SKILLS).length, 4);
+  profile.skills.vitality = 3;
+  assert.equal(maxHealthFor(profile), 130);
+  assert.deepEqual(rollMonsterLoot('slime', 0, () => 0), { item: 'coal', amount: 1, rarity: 'common' });
+  assert.equal(profile.skillPoints, 0);
 });
 
 test('i draghi senza cavaliere volano autonomamente', () => {

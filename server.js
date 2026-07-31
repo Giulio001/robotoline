@@ -57,7 +57,7 @@ const QUESTS = [
   { id:'wild_hunt',title:'La caccia selvaggia',description:'Sconfiggi 5 creature',event:'kill',target:'any',goal:5,reward:{coins:80,xp:100,items:{healingPotion:2}} },
   { id:'stone_beast',title:'La bestia rocciosa',description:'Sconfiggi un Golem antico',event:'kill',target:'golem',goal:1,reward:{coins:100,xp:125,items:{iron:5}} },
   { id:'companions',title:'Una compagnia fidata',description:'Crea o raggiungi un clan',event:'clan',target:'any',goal:1,reward:{coins:80,xp:110,items:{gold:2}} },
-  { id:'outpost',title:'L’avamposto',description:'Posiziona 20 blocchi per costruire una base',event:'place',target:'any',goal:20,reward:{coins:90,xp:140,items:{brick:20}} },
+  { id:'outpost',title:'L’avamposto',description:'Posiziona 12 blocchi per costruire una base',event:'place',target:'any',goal:12,reward:{coins:90,xp:140,items:{brick:20}} },
   { id:'sky_pact',title:'Il patto dei cieli',description:'Conquista la fiducia di un drago',event:'mount',target:'dragon',goal:1,reward:{coins:120,xp:170,items:{crystal:3}} },
   { id:'buried_dungeon',title:'Il dungeon sepolto',description:'Trova l’ingresso del Dungeon d’Ossidiana',event:'visit',target:'dungeon',goal:1,marker:{x:-24,z:-24,label:'Dungeon d’Ossidiana'},reward:{coins:140,xp:200,items:{healingPotion:3}} },
   { id:'ancient_guardian',title:'Il Guardiano Antico',description:'Sconfiggi il guardiano del dungeon',event:'kill',target:'ancientGuardian',goal:1,marker:{x:-24,z:-24,label:'Guardiano Antico'},reward:{coins:220,xp:300,items:{guardianBlade:1}} },
@@ -82,6 +82,19 @@ function terrainHeight(x, z) {
   return height;
 }
 
+function biomeAt(x, z) {
+  if (Math.hypot(x, z) < 12) return 'meadow';
+  const temperature = Math.sin(x * .018) * .55 + Math.cos(z * .014) * .45;
+  const moisture = Math.cos(x * .013 + z * .019) * .6 + Math.sin(z * .026) * .4;
+  const volcanic = fract(Math.sin(Math.floor(x / 36) * 91.7 + Math.floor(z / 36) * 47.3) * 43758.5453);
+  if (volcanic > .91 && Math.hypot(x, z) > 35) return 'volcanic';
+  if (temperature < -.45) return 'frost';
+  if (temperature > .48 && moisture < -.08) return 'desert';
+  if (moisture > .48 && temperature > -.15) return 'swamp';
+  if (moisture > .02) return 'forest';
+  return 'meadow';
+}
+
 const SPAWN = Object.freeze({ x: 0, y: terrainHeight(0, 0) + 2.2, z: 0 });
 
 const NPCS = [
@@ -94,8 +107,10 @@ const NPCS = [
 
 const WORLD_CHESTS = [
   { id:'castle_vault',name:'Tesoro del Castello',x:24,y:terrainHeight(24,24)+1.1,z:27,loot:{coins:90,items:{gold:3,iron:4,mapFragment:1}} },
-  { id:'dungeon_heart',name:'Scrigno d’Ossidiana',x:-24,y:terrainHeight(-24,-24)-3.8,z:-24,loot:{coins:160,items:{crystal:4,redstone:8,healingPotion:2}} },
-  { id:'corrupt_cache',name:'Reliquiario Corrotto',x:55,y:terrainHeight(55,-52)+1.1,z:-52,loot:{coins:220,items:{gold:6,crystal:5,dragonTreat:1}} }
+  { id:'dungeon_heart',name:'Scrigno d’Ossidiana',x:-24,y:terrainHeight(-24,-24)-3.8,z:-24,loot:{coins:160,items:{crystal:4,redstone:8,healingPotion:2,ancientKey:1}} },
+  { id:'corrupt_cache',name:'Reliquiario Corrotto',x:55,y:terrainHeight(55,-52)+1.1,z:-52,loot:{coins:220,items:{gold:6,crystal:5,dragonTreat:1}} },
+  { id:'sunken_crypt_cache',name:'Tesoro della Cripta',x:72,y:terrainHeight(72,40)-3.8,z:40,loot:{coins:145,items:{crystal:3,healingPotion:2,swiftBoots:1}} },
+  { id:'ember_vault_cache',name:'Forziere delle Braci',x:-72,y:terrainHeight(-72,-40)-3.8,z:-40,loot:{coins:175,items:{gold:4,redstone:6,frostHelmet:1}} }
 ];
 
 const LANDMARKS = [
@@ -106,11 +121,31 @@ const LANDMARKS = [
   { id:'obsidian_dungeon',name:'Dungeon d’Ossidiana',type:'dungeon',x:-24,z:-24,radius:9,reward:{coins:45,xp:70} },
   { id:'frost_shrine',name:'Santuario del Gelo',type:'santuario',x:-56,z:40,radius:10,reward:{coins:40,xp:65} },
   { id:'western_ruins',name:'Rovine dei Primi',type:'rovine',x:-40,z:8,radius:10,reward:{coins:32,xp:55} },
-  { id:'corruption_peak',name:'Picco della Corruzione',type:'picco',x:58,z:-54,radius:12,reward:{coins:65,xp:90} }
+  { id:'corruption_peak',name:'Picco della Corruzione',type:'picco',x:58,z:-54,radius:12,reward:{coins:65,xp:90} },
+  { id:'sunken_crypt',name:'Cripta Sommersa',type:'dungeon',x:72,z:40,radius:10,reward:{coins:48,xp:75} },
+  { id:'ember_vault',name:'Volta delle Braci',type:'dungeon',x:-72,z:-40,radius:10,reward:{coins:52,xp:80} }
 ];
 
+const SKILLS = Object.freeze({
+  miner: { name:'Minatore',max:5,description:'Più velocità e possibilità di ottenere risorse doppie.' },
+  warrior: { name:'Guerriero',max:5,description:'Aumenta il danno inflitto con ogni arma.' },
+  vitality: { name:'Vitalità',max:5,description:'Aumenta la vita massima di 10 per grado.' },
+  explorer: { name:'Esploratore',max:5,description:'Più velocità, ricompense e fortuna nel loot.' }
+});
+
+const ITEM_RARITY = Object.freeze({ guardianCore:'epic',voidScale:'legendary',guardianBlade:'legendary',crownOfTerranova:'legendary',ancientKey:'rare',frostHelmet:'epic',swiftBoots:'rare',voidChestplate:'legendary',healingPotion:'uncommon',crystal:'rare',gold:'uncommon' });
+
+const LOOT_TABLES = Object.freeze({
+  slime: [{item:'coal',weight:48},{item:'bread',weight:24},{item:'healingPotion',weight:8},{item:'crystal',weight:3}],
+  boar: [{item:'iron',weight:42},{item:'bread',weight:28,amount:2},{item:'gold',weight:8},{item:'swiftBoots',weight:1}],
+  golem: [{item:'iron',weight:35,amount:2},{item:'gold',weight:24},{item:'redstone',weight:18,amount:2},{item:'frostHelmet',weight:2}],
+  wraith: [{item:'crystal',weight:32},{item:'redstone',weight:28,amount:2},{item:'healingPotion',weight:10},{item:'ancientKey',weight:3}],
+  ancientGuardian: [{item:'guardianCore',weight:60},{item:'guardianBlade',weight:15},{item:'ancientKey',weight:25}],
+  voidDragon: [{item:'voidScale',weight:55,amount:2},{item:'voidChestplate',weight:20},{item:'crystal',weight:25,amount:6}]
+});
+
 function defaultState() {
-  return { version: 4, worldSeed: 'TERRANOVA-3107', blocks: {}, profiles: {}, clans: {}, lootBoxes: {}, itemDrops: {}, levers: {}, circuitPower: {}, chestClaims: {}, worldDay: 0.28 };
+  return { version: 5, worldSeed: 'TERRANOVA-3107', blocks: {}, profiles: {}, clans: {}, lootBoxes: {}, itemDrops: {}, levers: {}, circuitPower: {}, chestClaims: {}, worldDay: 0.28 };
 }
 
 function loadState() {
@@ -156,6 +191,8 @@ function freshProfile(name) {
     maxHealth: 100,
     level: 1,
     xp: 0,
+    skillPoints: 0,
+    skills: { miner: 0, warrior: 0, vitality: 0, explorer: 0 },
     inventory: { grass: 12, dirt: 8, wood: 6, stone: 3, bread: 2, woodPickaxe: 1 },
     equipment: { helmet: null, chest: null, boots: null },
     questIndex: 0,
@@ -180,6 +217,9 @@ function publicProfile(profile) {
     level: profile.level,
     xp: profile.xp,
     xpNext: 100 + profile.level * 75,
+    skillPoints: profile.skillPoints || 0,
+    skills: profile.skills || { miner: 0, warrior: 0, vitality: 0, explorer: 0 },
+    skillDefinitions: SKILLS,
     inventory: profile.inventory,
     equipment: profile.equipment,
     questIndex: profile.questIndex,
@@ -221,13 +261,29 @@ const monsters = new Map();
 const dragons = new Map();
 
 const MONSTER_KINDS = {
-  slime: { hp: 30, damage: 7, speed: 1.15, coins: [4, 10], drop: 'coal' },
-  boar: { hp: 48, damage: 10, speed: 1.8, coins: [7, 14], drop: 'iron' },
-  golem: { hp: 85, damage: 16, speed: 0.72, coins: [14, 25], drop: 'gold' },
-  wraith: { hp: 58, damage: 13, speed: 1.35, coins: [11, 20], drop: 'crystal' },
-  ancientGuardian: { hp: 420, damage: 24, speed: .68, coins: [140, 190], drop: 'guardianCore', boss: true, xp: 260 },
-  voidDragon: { hp: 720, damage: 31, speed: 1.25, coins: [280, 380], drop: 'voidScale', boss: true, xp: 500 }
+  slime: { hp: 26, damage: 5, speed: 1.05, coins: [5, 11], drop: 'coal' },
+  boar: { hp: 42, damage: 8, speed: 1.65, coins: [8, 15], drop: 'iron' },
+  golem: { hp: 75, damage: 12, speed: 0.66, coins: [16, 27], drop: 'gold' },
+  wraith: { hp: 52, damage: 10, speed: 1.2, coins: [13, 22], drop: 'crystal' },
+  ancientGuardian: { hp: 350, damage: 18, speed: .62, coins: [150, 200], drop: 'guardianCore', boss: true, xp: 280 },
+  voidDragon: { hp: 600, damage: 23, speed: 1.08, coins: [300, 400], drop: 'voidScale', boss: true, xp: 540 }
 };
+
+function maxHealthFor(profile) {
+  return 100 + (Math.max(1, profile.level || 1) - 1) * 5 + (profile.skills?.vitality || 0) * 10;
+}
+
+function rollMonsterLoot(kind, luck = 0, random = Math.random) {
+  const table = LOOT_TABLES[kind] || [];
+  if (!table.length) return null;
+  const boss = Boolean(MONSTER_KINDS[kind]?.boss);
+  if (!boss && random() > Math.min(.94, .72 + luck * .05)) return null;
+  const adjusted = table.map(entry => ({ ...entry, adjustedWeight: entry.weight * (1 + luck * (ITEM_RARITY[entry.item] ? .14 : .025)) }));
+  const total = adjusted.reduce((sum, entry) => sum + entry.adjustedWeight, 0);
+  let roll = random() * total;
+  const selected = adjusted.find(entry => (roll -= entry.adjustedWeight) <= 0) || adjusted.at(-1);
+  return { item: selected.item, amount: selected.amount || 1, rarity: ITEM_RARITY[selected.item] || 'common' };
+}
 
 function randomWorldPosition(minDistance = 10, center = { x: 0, z: 0 }) {
   let x;
@@ -400,9 +456,10 @@ function grantXp(socket, profile, amount) {
   while (profile.xp >= next) {
     profile.xp -= next;
     profile.level += 1;
-    profile.maxHealth = 100 + (profile.level - 1) * 5;
+    profile.skillPoints = (profile.skillPoints || 0) + 1;
+    profile.maxHealth = maxHealthFor(profile);
     profile.health = profile.maxHealth;
-    socket?.emit('toast', { type: 'level', text: `Livello ${profile.level}! Vita massima aumentata.` });
+    socket?.emit('toast', { type: 'level', text: `Livello ${profile.level}! Hai ottenuto 1 punto abilità.` });
     next = 100 + profile.level * 75;
   }
 }
@@ -461,7 +518,9 @@ io.on('connection', socket => {
     profile.carriedBoxes ||= [];
     profile.level ||= 1;
     profile.xp ||= 0;
-    profile.maxHealth ||= 100 + (profile.level - 1) * 5;
+    profile.skillPoints ||= 0;
+    profile.skills = { miner: 0, warrior: 0, vitality: 0, explorer: 0, ...(profile.skills || {}) };
+    profile.maxHealth = maxHealthFor(profile);
     profile.equipment ||= { helmet: null, chest: null, boots: null };
     profile.questIndex ||= 0;
     profile.questProgress ||= {};
@@ -475,7 +534,7 @@ io.on('connection', socket => {
     profile.health = Math.max(1, Math.min(profile.maxHealth, profile.health || profile.maxHealth));
     profile.lastSeen = Date.now();
     state.profiles[key] = profile;
-    const player = { id: socket.id, socketId: socket.id, name, x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: 0, pitch: 0, health: profile.health, clan: profile.clan, mountedDragon: null, lastMoveAt: Date.now(), lastAttackAt: 0 };
+    const player = { id: socket.id, socketId: socket.id, name, x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: 0, pitch: 0, health: profile.health, clan: profile.clan, mountedDragon: null, lastMoveAt: Date.now(), lastAttackAt: 0, lastDamagedAt: 0, lastRegenAt: 0, invulnerableUntil: Date.now() + 6000 };
     players.set(socket.id, player);
 
     socket.emit('welcome', {
@@ -521,9 +580,12 @@ io.on('connection', socket => {
     if (discovery) {
       profile.discoveredLandmarks.push(discovery.id);
       profile.stats.discoveries = profile.discoveredLandmarks.length;
-      profile.coins += discovery.reward.coins;
-      grantXp(socket, profile, discovery.reward.xp);
-      socket.emit('landmarkDiscovered', { id: discovery.id, name: discovery.name, type: discovery.type, coins: discovery.reward.coins, xp: discovery.reward.xp, current: profile.discoveredLandmarks.length, total: LANDMARKS.length });
+      const explorerBonus = 1 + profile.skills.explorer * .1;
+      const discoveryCoins = Math.round(discovery.reward.coins * explorerBonus);
+      const discoveryXp = Math.round(discovery.reward.xp * explorerBonus);
+      profile.coins += discoveryCoins;
+      grantXp(socket, profile, discoveryXp);
+      socket.emit('landmarkDiscovered', { id: discovery.id, name: discovery.name, type: discovery.type, coins: discoveryCoins, xp: discoveryXp, current: profile.discoveredLandmarks.length, total: LANDMARKS.length });
       sendProfile(socket, profile);
       persistSoon();
     }
@@ -549,7 +611,9 @@ io.on('connection', socket => {
     if (state.blocks[blockKey] === 0) return;
     state.blocks[blockKey] = 0;
     if (CIRCUIT_TYPES.has(block)) { delete state.levers[blockKey]; recalculateCircuits(); }
-    addItems(profile, { [block]: 1 });
+    const miningAmount = Math.random() < (profile.skills.miner || 0) * .12 ? 2 : 1;
+    addItems(profile, { [block]: miningAmount });
+    if (miningAmount > 1) socket.emit('toast', { type: 'skill', text: `Minatore: hai estratto 2× ${block}.` });
     profile.stats.mined += 1;
     advanceQuest(socket, profile, 'mine', block);
     io.emit('blockChanged', { ...position, type: 0, by: player.name });
@@ -589,7 +653,7 @@ io.on('connection', socket => {
     if (held === 'stoneSword' && profile.inventory.stoneSword) damage = 18;
     if (held === 'crystalSword' && profile.inventory.crystalSword) damage = 34;
     if (held === 'guardianBlade' && profile.inventory.guardianBlade) damage = 52;
-    damage += Math.floor((profile.level - 1) * 1.5);
+    damage += Math.floor((profile.level - 1) * 1.5) + (profile.skills.warrior || 0) * 3;
     monster.hp -= damage;
     monster.target = player.id;
     io.emit('monsterHit', { id: monster.id, hp: monster.hp, damage, by: player.name });
@@ -599,7 +663,13 @@ io.on('connection', socket => {
       profile.coins += earned;
       profile.stats.kills += 1;
       if (stats.boss) profile.stats.bosses += 1;
-      if (Math.random() < 0.7) addItems(profile, { [stats.drop]: 1 });
+      const loot = rollMonsterLoot(monster.kind, profile.skills.explorer || 0);
+      if (loot) {
+        const drop = { id: randomId('item'), item: loot.item, amount: loot.amount, rarity: loot.rarity, x: monster.x, y: monster.y + .25, z: monster.z, droppedBy: monster.kind, createdAt: Date.now() };
+        state.itemDrops[drop.id] = drop;
+        io.emit('itemDrops', groundItemDrops());
+        socket.emit('lootDropped', { item: loot.item, amount: loot.amount, rarity: loot.rarity });
+      }
       monsters.delete(monster.id);
       io.emit('monsterDefeated', { id: monster.id, by: player.name, coins: earned });
       socket.emit('toast', { type: 'coin', text: `Creatura sconfitta · +${earned} monete` });
@@ -657,6 +727,23 @@ io.on('connection', socket => {
     if (!slot) return;
     profile.equipment[slot] = profile.equipment[slot] === item ? null : item;
     sendProfile(socket, profile, profile.equipment[slot] ? `${item} indossato` : `${item} rimosso`);
+    persistSoon();
+  });
+
+  socket.on('unlockSkill', skillId => {
+    const profile = key && state.profiles[key];
+    skillId = cleanText(skillId, 20);
+    const definition = SKILLS[skillId];
+    if (!profile || !definition || profile.skillPoints < 1 || (profile.skills[skillId] || 0) >= definition.max) return;
+    profile.skillPoints -= 1;
+    profile.skills[skillId] = (profile.skills[skillId] || 0) + 1;
+    if (skillId === 'vitality') {
+      profile.maxHealth = maxHealthFor(profile);
+      profile.health = Math.min(profile.maxHealth, profile.health + 10);
+      const player = players.get(socket.id);
+      if (player) player.health = profile.health;
+    }
+    sendProfile(socket, profile, `${definition.name} migliorata al grado ${profile.skills[skillId]}`);
     persistSoon();
   });
 
@@ -847,7 +934,7 @@ io.on('connection', socket => {
     const player = players.get(socket.id);
     const profile = key && state.profiles[key];
     if (!player || !profile || profile.health > 0) return;
-    Object.assign(player, SPAWN, { health: profile.maxHealth, mountedDragon: null });
+    Object.assign(player, SPAWN, { health: profile.maxHealth, mountedDragon: null, invulnerableUntil: Date.now() + 8000, lastDamagedAt: 0 });
     profile.health = profile.maxHealth;
     socket.emit('respawned', { ...SPAWN, health: profile.maxHealth });
     sendProfile(socket, profile);
@@ -900,12 +987,15 @@ function updateWorld() {
         monster.z += Math.cos(angle) * stats.speed * dt;
         const ground = terrainHeight(Math.round(monster.x), Math.round(monster.z));
         monster.y = monster.kind === 'ancientGuardian' ? terrainHeight(-24, -24) - 3.8 : ground + (monster.kind === 'voidDragon' ? 5 + Math.sin(now / 650) * 1.2 : 1.1);
-      } else if (now - monster.lastAttack > 1100) {
+      } else if (now - monster.lastAttack > 1250) {
         monster.lastAttack = now;
         const profile = state.profiles[profileKey(closest.name)];
-        const defense = profile ? (profile.equipment?.helmet ? 3 : 0) + (profile.equipment?.chest ? 7 : 0) + (profile.equipment?.boots ? 3 : 0) : 0;
+        const defenseValue = item => ({ frostHelmet: 6, voidChestplate: 13, swiftBoots: 4 }[item] || (item ? 3 : 0));
+        const defense = profile ? defenseValue(profile.equipment?.helmet) + (profile.equipment?.chest === 'ironChestplate' ? 7 : defenseValue(profile.equipment?.chest)) + defenseValue(profile.equipment?.boots) : 0;
         const receivedDamage = Math.max(2, stats.damage - defense);
+        if (now < (closest.invulnerableUntil || 0)) continue;
         closest.health = Math.max(0, closest.health - receivedDamage);
+        closest.lastDamagedAt = now;
         if (profile) profile.health = closest.health;
         io.to(closest.socketId).emit('health', closest.health);
         io.to(closest.socketId).emit('playerDamaged', { amount: receivedDamage, source: monster.kind });
@@ -923,6 +1013,15 @@ function updateWorld() {
       monster.x += Math.sin(monster.yaw) * stats.speed * 0.18 * dt;
       monster.z += Math.cos(monster.yaw) * stats.speed * 0.18 * dt;
     }
+  }
+  for (const player of players.values()) {
+    const profile = state.profiles[profileKey(player.name)];
+    if (!profile || player.health <= 0 || player.health >= profile.maxHealth || now - (player.lastDamagedAt || 0) < 8000 || now - (player.lastRegenAt || 0) < 2500) continue;
+    player.lastRegenAt = now;
+    const recovered = 2 + Math.floor((profile.skills?.vitality || 0) / 2);
+    player.health = Math.min(profile.maxHealth, player.health + recovered);
+    profile.health = player.health;
+    io.to(player.socketId).emit('health', player.health);
   }
   if (now - lastMonsterBalance > 5000 && players.size) {
     lastMonsterBalance = now;
@@ -962,4 +1061,4 @@ if (require.main === module) {
   process.on('SIGTERM', shutdown);
 }
 
-module.exports = { server, terrainHeight, SPAWN, RECIPES, SHOP, QUESTS, LANDMARKS, freshProfile, activeQuest, advanceQuest, updateDragonFlight, createDeathBox };
+module.exports = { server, terrainHeight, biomeAt, SPAWN, RECIPES, SHOP, QUESTS, LANDMARKS, SKILLS, LOOT_TABLES, freshProfile, activeQuest, advanceQuest, rollMonsterLoot, maxHealthFor, updateDragonFlight, createDeathBox };

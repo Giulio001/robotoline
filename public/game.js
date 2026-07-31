@@ -25,8 +25,12 @@ const ITEM_INFO = {
   woodPickaxe: ['Piccone di legno', '', '⚒'], stonePickaxe: ['Piccone di pietra', '', '⚒'], ironPickaxe: ['Piccone di ferro', '', '⚒'],
   stoneSword: ['Spada di pietra', '', '⚔'], crystalSword: ['Spada di cristallo', '', '⚔'], guardianBlade: ['Lama del Guardiano', '', '⚔'], dragonTreat: ['Dono per draghi', '', '✦'],
   healingPotion: ['Pozione curativa', '#b84f8f', '●'], ironHelmet: ['Elmo di ferro', '', '◉'], ironChestplate: ['Corazza di ferro', '', '⬟'], ironBoots: ['Stivali di ferro', '', '⌑'],
-  mapFragment: ['Frammento di mappa', '#d4b46a', '⌁'], guardianCore: ['Nucleo del Guardiano', '#55c4c7', '◆'], voidScale: ['Scaglia del Vuoto', '#563780', '◈'], crownOfTerranova: ['Corona di Terranova', '', '♛']
+  mapFragment: ['Frammento di mappa', '#d4b46a', '⌁'], guardianCore: ['Nucleo del Guardiano', '#55c4c7', '◆'], voidScale: ['Scaglia del Vuoto', '#563780', '◈'], crownOfTerranova: ['Corona di Terranova', '', '♛'],
+  ancientKey: ['Chiave antica', '#b79a52', '⚿'], frostHelmet: ['Elmo del Gelo', '', '◉'], swiftBoots: ['Stivali del Vento', '', '⌑'], voidChestplate: ['Corazza del Vuoto', '', '⬟']
 };
+const ITEM_RARITY = { healingPotion:'uncommon',gold:'uncommon',crystal:'rare',ancientKey:'rare',swiftBoots:'rare',guardianCore:'epic',frostHelmet:'epic',guardianBlade:'legendary',voidScale:'legendary',voidChestplate:'legendary',crownOfTerranova:'legendary' };
+const RARITY_LABEL = { common:'Comune',uncommon:'Non comune',rare:'Raro',epic:'Epico',legendary:'Leggendario' };
+const BIOME_INFO = { meadow:['Praterie di Terranova','#4b8050'],forest:['Foresta Antica','#276343'],desert:['Deserto Dorato','#c6aa62'],swamp:['Paludi di Smeraldo','#476e52'],frost:['Distese del Gelo','#d6e7e8'],volcanic:['Terre delle Braci','#4a3741'] };
 const PLACEABLE = new Set(['grass', 'dirt', 'stone', 'sand', 'wood', 'leaves', 'planks', 'brick', 'obsidian', 'crystal', 'coal', 'iron', 'gold', 'redstone', 'redstoneWire', 'lever', 'lamp', 'piston', 'snow', 'torch']);
 const MOB_LABELS = { slime: 'Melma delle radici', boar: 'Cinghiale roccioso', golem: 'Golem antico', wraith: 'Spettro del crepuscolo', ancientGuardian: 'Guardiano Antico', voidDragon: 'Drago del Vuoto' };
 
@@ -95,12 +99,14 @@ function terrainHeight(x, z) {
   if (lakeDistance < 6.5) height = Math.min(height, 4 + Math.floor(lakeDistance / 4));
   return height;
 }
+function biomeAt(x,z){if(Math.hypot(x,z)<12)return'meadow';const temperature=Math.sin(x*.018)*.55+Math.cos(z*.014)*.45,moisture=Math.cos(x*.013+z*.019)*.6+Math.sin(z*.026)*.4,volcanic=fract(Math.sin(Math.floor(x/36)*91.7+Math.floor(z/36)*47.3)*43758.5453);if(volcanic>.91&&Math.hypot(x,z)>35)return'volcanic';if(temperature<-.45)return'frost';if(temperature>.48&&moisture<-.08)return'desert';if(moisture>.48&&temperature>-.15)return'swamp';if(moisture>.02)return'forest';return'meadow'}
 function worldHash(x, y, z = 0) { return fract(Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453123); }
 function keyOf(x, y, z) { return `${x},${y},${z}`; }
 
 function isTreeOrigin(x, z) {
   const h = terrainHeight(x, z);
-  return Math.hypot(x, z) > 7 && h > WATER_LEVEL && h < 12 && worldHash(x, z, 19) > 0.965;
+  const biome=biomeAt(x,z),threshold=biome==='forest'?.935:biome==='swamp'?.95:biome==='meadow'?.975:1;
+  return Math.hypot(x, z) > 7 && h > WATER_LEVEL && h < 12 && worldHash(x, z, 19) > threshold;
 }
 
 function chunkFeature(chunkX, chunkZ) {
@@ -109,6 +115,8 @@ function chunkFeature(chunkX, chunkZ) {
   let type = null;
   if (chunkX === 1 && chunkZ === 1) type = 'castle';
   else if (chunkX === -2 && chunkZ === -2) type = 'dungeon';
+  else if (chunkX === 4 && chunkZ === 2) type = 'dungeon';
+  else if (chunkX === -5 && chunkZ === -3) type = 'dungeon';
   else if (chunkX === -3 && chunkZ === 0) type = 'ruin';
   else if (chunkX === -4 && chunkZ === 2) type = 'shrine';
   else if (chunkX === 3 && chunkZ === -4) type = 'tower';
@@ -117,8 +125,9 @@ function chunkFeature(chunkX, chunkZ) {
     if (chance < .7){chunkFeatureCache.set(cacheKey,null);return null}
     type = chance > .91 ? 'tower' : chance > .81 ? 'ruin' : 'shrine';
   }
-  const x = chunkX * 16 + 8 + Math.floor((worldHash(chunkX, 11, chunkZ) - .5) * 4);
-  const z = chunkZ * 16 + 8 + Math.floor((worldHash(chunkZ, 29, chunkX) - .5) * 4);
+  const forcedCenter=chunkX===1&&chunkZ===1?{x:24,z:24}:chunkX===-2&&chunkZ===-2?{x:-24,z:-24}:chunkX===4&&chunkZ===2?{x:72,z:40}:chunkX===-5&&chunkZ===-3?{x:-72,z:-40}:null;
+  const x = forcedCenter?.x ?? chunkX * 16 + 8 + Math.floor((worldHash(chunkX, 11, chunkZ) - .5) * 4);
+  const z = forcedCenter?.z ?? chunkZ * 16 + 8 + Math.floor((worldHash(chunkZ, 29, chunkX) - .5) * 4);
   const feature={ type, x, z, base: terrainHeight(x, z) };chunkFeatureCache.set(cacheKey,feature);return feature;
 }
 
@@ -184,10 +193,11 @@ function generatedBlock(x, y, z) {
   if (Math.abs(x) > WORLD_LIMIT || Math.abs(z) > WORLD_LIMIT || y < 0 || y > 28) return null;
   const structure=structureBlock(x,y,z);if(structure.handled)return structure.type;
   const height = terrainHeight(x, z);
+  const biome=biomeAt(x,z);
   if (y <= height) {
     if (y === 0) return 'obsidian';
-    if (y === height) return height >= 11 ? 'snow' : height <= WATER_LEVEL ? 'sand' : 'grass';
-    if (height - y <= 2) return height <= WATER_LEVEL ? 'sand' : 'dirt';
+    if (y === height) return height <= WATER_LEVEL?'sand':biome==='frost'?'snow':biome==='desert'?'sand':biome==='volcanic'?'obsidian':'grass';
+    if (height - y <= 2) return biome==='desert'||height<=WATER_LEVEL?'sand':biome==='volcanic'?'stone':'dirt';
     const ore = worldHash(x, y, z);
     if (y < 5 && ore > 0.972) return 'crystal';
     if (y < 7 && ore > 0.95) return 'gold';
@@ -353,6 +363,14 @@ function updateHeldViewModel() {
     const head = box(.65, .12, .14, viewMaterial(item === 'woodPickaxe' ? 0x986d3e : item === 'stonePickaxe' ? 0x737b7b : 0xb5c0bd)); head.position.set(-.09, .66, 0); head.rotation.z = -.12; viewModel.add(handle, head);
   } else if (item.includes('Sword') || item === 'guardianBlade') {
     const guardian=item==='guardianBlade';const grip = box(.1, .45, .1, viewMaterial(guardian?0x3e2a51:0x76512d)); grip.position.y=.22; const blade=box(.13,.8,.07,viewMaterial(guardian?0x71f0da:item==='crystalSword'?0x59d5ec:0xaeb5b2,guardian?0x1b665c:item==='crystalSword'?0x174b58:0));blade.position.y=.78;viewModel.add(grip,blade);
+  } else if(item==='torch'){
+    const shaft=box(.1,.6,.1,viewMaterial(0x76502b));shaft.position.y=.28;const flame=new THREE.Mesh(new THREE.SphereGeometry(.14,10,7),viewMaterial(0xffa32f,0xd85d12));flame.position.y=.65;viewModel.add(shaft,flame);
+  } else if(item==='healingPotion'){
+    const bottle=new THREE.Mesh(new THREE.CylinderGeometry(.16,.22,.48,10),new THREE.MeshStandardMaterial({color:0xb84f8f,emissive:0x351128,transparent:true,opacity:.88,depthTest:false,depthWrite:false}));bottle.position.y=.3;const cork=box(.12,.12,.12,viewMaterial(0x8c6335));cork.position.y=.6;viewModel.add(bottle,cork);
+  } else if(item==='ancientKey'){
+    const metal=viewMaterial(0xd3b45f,0x3a2608),stem=box(.08,.58,.08,metal);stem.position.y=.32;const ring=new THREE.Mesh(new THREE.TorusGeometry(.18,.05,8,14),metal);ring.position.y=.66;const tooth=box(.24,.08,.08,metal);tooth.position.set(.08,.05,0);viewModel.add(stem,ring,tooth);
+  } else if(PLACEABLE.has(item)){
+    const source=blockMaterials?.[item],material=new THREE.MeshStandardMaterial({map:source?.map||null,color:source?.map?0xffffff:ITEM_INFO[item]?.[1]||'#777',roughness:.8,depthTest:false,depthWrite:false});const held=box(.42,.42,.42,material);held.position.y=.32;held.rotation.set(.2,.25,.1);viewModel.add(held);
   } else {
     const color = ITEM_INFO[item]?.[1] || '#b97835'; const held = box(.38, .38, .38, viewMaterial(color)); held.position.y = .32; held.rotation.set(.2,.25,.1); viewModel.add(held);
   }
@@ -568,9 +586,10 @@ function createLootBoxModel(boxData){
 
 function createItemDropModel(drop){
   const group=new THREE.Group(),info=ITEM_INFO[drop.item]||[drop.item,'#777','?'];
-  const item=box(.34,.34,.34,simpleMaterial(info[1]||0xb9b9b9,drop.item==='crystal'?0x164754:0));item.rotation.set(.25,.3,.12);group.add(item);
-  const tag=createNameTag(`${itemName(drop.item)} ×${drop.amount||1}`,'#dff8e8');tag.position.y=.85;tag.scale.multiplyScalar(.62);group.add(tag);
-  group.userData={entityType:'itemDrop',id:drop.id,item:drop.item,target:new THREE.Vector3(drop.x,drop.y,drop.z)};group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);return group;
+  const rarity=drop.rarity||ITEM_RARITY[drop.item]||'common',rarityColor={common:'#dff8e8',uncommon:'#76d893',rare:'#72aff0',epic:'#c48af0',legendary:'#f1bf59'}[rarity];
+  const item=box(.34,.34,.34,simpleMaterial(info[1]||0xb9b9b9,rarity==='epic'?0x35174f:rarity==='legendary'?0x5a3e08:drop.item==='crystal'?0x164754:0));item.rotation.set(.25,.3,.12);group.add(item);
+  const tag=createNameTag(`${itemName(drop.item)} ×${drop.amount||1} · ${RARITY_LABEL[rarity]}`,rarityColor);tag.position.y=.85;tag.scale.multiplyScalar(.68);group.add(tag);
+  group.userData={entityType:'itemDrop',id:drop.id,item:drop.item,rarity,target:new THREE.Vector3(drop.x,drop.y,drop.z)};group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);return group;
 }
 
 function createNpcModel(npc){
@@ -636,13 +655,13 @@ function refreshProfile(next) {
   const maxHealth=profile.maxHealth||100,xpNext=profile.xpNext||175;$('#coins').textContent=profile.coins;$('#health-text').textContent=`${profile.health}/${maxHealth}`;$('#health-bar').style.width=`${profile.health/maxHealth*100}%`;$('#level-badge').textContent=profile.level||1;$('#xp-text').textContent=`${profile.xp||0}/${xpNext}`;$('#xp-bar').style.width=`${(profile.xp||0)/xpNext*100}%`;
   $('#player-label').textContent=profile.name;$('#avatar-letter').textContent=profile.name[0].toUpperCase();$('#clan-label').textContent=profile.clan||'Senza clan';
   profile.health<=30?$('#health-bar').style.filter='brightness(1.35)':$('#health-bar').style.filter='';
-  fillHotbar();updateHeldViewModel();renderInventory();renderQuests();renderExploration();renderCrafting();renderShop();renderClans();
+  fillHotbar();updateHeldViewModel();renderInventory();renderQuests();renderExploration();renderSkills();renderCrafting();renderShop();renderClans();
   if(next.message)toast(next.message);
 }
 
 function fillHotbar() {
-  const available=Object.keys(profile?.inventory||{}).filter(item=>(profile.inventory[item]||0)>0);
-  hotbarItems=hotbarItems.map(item=>item&&profile.inventory[item]>0?item:null);
+  const available=Object.keys(profile?.inventory||{}).filter(item=>(profile.inventory[item]||0)>0&&!isArmor(item));
+  hotbarItems=hotbarItems.map(item=>item&&profile.inventory[item]>0&&!isArmor(item)?item:null);
   for(const item of available){if(!hotbarItems.includes(item)&&hotbarItems.includes(null))hotbarItems[hotbarItems.indexOf(null)]=item}
   $('#hotbar').innerHTML=hotbarItems.map((item,index)=>`<button class="hot-slot ${index===selectedSlot?'selected':''}" data-slot="${index}" title="${item?itemName(item):'Vuoto'}"><span class="key">${index+1}</span>${item?iconMarkup(item):''}<span class="count">${item?(profile.inventory[item]||0):''}</span></button>`).join('');
   $$('.hot-slot').forEach(button=>button.onclick=()=>selectSlot(Number(button.dataset.slot)));
@@ -665,7 +684,7 @@ function showInventoryActions(item){
   const gift=panel.querySelector('[data-gift]');if(gift)gift.onclick=()=>{const targetId=panel.querySelector('select').value;if(targetId){socket.emit('giftItem',{item,targetId});panel.classList.add('hidden')}};
 }
 function renderInventory(){
-  if(!profile)return;$('#inventory-grid').innerHTML=Object.entries(profile.inventory).sort((a,b)=>a[0].localeCompare(b[0])).map(([item,count])=>`<button class="inventory-item" data-item="${item}"><em>${count}</em>${iconMarkup(item)}<b>${itemName(item)}</b></button>`).join('')||'<p>Lo zaino è vuoto.</p>';
+  if(!profile)return;$('#inventory-grid').innerHTML=Object.entries(profile.inventory).sort((a,b)=>a[0].localeCompare(b[0])).map(([item,count])=>{const rarity=ITEM_RARITY[item]||'common';return `<button class="inventory-item rarity-${rarity}" data-item="${item}"><em>${count}</em>${iconMarkup(item)}<b>${itemName(item)}</b><small>${RARITY_LABEL[rarity]}</small></button>`}).join('')||'<p>Lo zaino è vuoto.</p>';
   const slots=[['helmet','◉','ELMO'],['chest','⬟','CORAZZA'],['boots','⌑','STIVALI']];$('#equipment-slots').innerHTML=slots.map(([slot,icon,label])=>`<button class="equipment-slot" data-equipped="${profile.equipment?.[slot]||''}"><span>${icon}</span><div><small>${label}</small><b>${profile.equipment?.[slot]?itemName(profile.equipment[slot]):'Vuoto'}</b></div></button>`).join('');$$('[data-equipped]').forEach(button=>button.onclick=()=>{if(button.dataset.equipped)socket.emit('equipItem',button.dataset.equipped)});
   $$('.inventory-item').forEach(button=>{button.onclick=()=>showInventoryActions(button.dataset.item);button.oncontextmenu=event=>{event.preventDefault();equipItem(button.dataset.item)}});
 }
@@ -675,6 +694,7 @@ function renderCrafting(){if(!profile)return;$('#recipe-list').innerHTML=Object.
 function renderShop(){if(!profile)return;$('#shop-list').innerHTML=Object.entries(shop).map(([id,product])=>`<article class="shop-item"><strong>${product.label}</strong><p class="cost">◈ ${product.price} monete</p><button data-buy="${id}" ${profile.coins>=product.price?'':'disabled'}>Acquista</button></article>`).join('');$$('[data-buy]').forEach(button=>button.onclick=()=>socket.emit('buy',button.dataset.buy))}
 function renderQuests(){if(!profile)return;const quests=profile.quests||[],quest=quests[profile.questIndex||0];if(!quest){$('#quests').innerHTML='<article class="quest done"><header><strong>Eroe di Terranovaland</strong><b>CAMPAGNA COMPLETA</b></header><p>Il Drago del Vuoto è caduto. Continua a esplorare, costruire e aiutare il tuo clan.</p></article>';return}const current=Math.min(profile.questProgress?.[quest.id]||0,quest.goal),reward=quest.reward||{};$('#quests').innerHTML=`<article class="quest"><header><strong>${profile.questIndex+1}. ${quest.title}</strong><b>${current} / ${quest.goal}</b></header><p>${quest.description}<br>Ricompensa: ◈ ${reward.coins||0} · ${reward.xp||0} XP</p><div class="bar"><i style="width:${current/quest.goal*100}%"></i></div><small class="explore-count">Luoghi scoperti: ${(profile.discoveredLandmarks||[]).length}/${profile.landmarkTotal||landmarks.length}</small></article>`}
 function renderExploration(){const found=new Set(profile?.discoveredLandmarks||[]);const list=$('#landmark-list');if(!list)return;list.innerHTML=landmarks.map(mark=>`<article class="landmark-item ${found.has(mark.id)?'found':''}"><span>${found.has(mark.id)?'◆':'?'}</span><div><strong>${found.has(mark.id)?mark.name:'Luogo inesplorato'}</strong><p>${found.has(mark.id)?`${mark.type} · coordinate ${mark.x}, ${mark.z}`:'Esplora il mondo per rivelarlo'}</p></div></article>`).join('')}
+function renderSkills(){if(!profile||!$('#skill-list'))return;const icons={miner:'⚒',warrior:'⚔',vitality:'♥',explorer:'⌖'};$('#skill-points').textContent=profile.skillPoints||0;$('#skill-list').innerHTML=Object.entries(profile.skillDefinitions||{}).map(([id,skill])=>{const rank=profile.skills?.[id]||0;return `<article class="skill-card"><span>${icons[id]}</span><div><strong>${skill.name} · ${rank}/${skill.max}</strong><p>${skill.description}</p></div><button data-skill="${id}" ${(profile.skillPoints||0)<1||rank>=skill.max?'disabled':''}>Migliora</button><div class="skill-rank">${Array.from({length:skill.max},(_,index)=>`<i class="${index<rank?'active':''}"></i>`).join('')}</div></article>`}).join('');$$('[data-skill]').forEach(button=>button.onclick=()=>socket.emit('unlockSkill',button.dataset.skill))}
 
 function updateNavigation(now){
   if(!camera||!profile)return;const quest=(profile.quests||[])[profile.questIndex||0],direction=$('#quest-direction');
@@ -685,11 +705,11 @@ function updateNavigation(now){
 
 function drawMinimap(){
   const canvas=$('#minimap-canvas');if(!canvas||!camera)return;const ctx=canvas.getContext('2d'),size=canvas.width,center=size/2,scale=2.35,radius=34;ctx.clearRect(0,0,size,size);ctx.save();ctx.translate(center,center);const yaw=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ').y;ctx.rotate(yaw);
-  for(let dx=-radius;dx<=radius;dx+=2)for(let dz=-radius;dz<=radius;dz+=2){const wx=Math.round(camera.position.x+dx),wz=Math.round(camera.position.z+dz),h=terrainHeight(wx,wz);ctx.fillStyle=h<=WATER_LEVEL?'#2d8294':h>=11?'#d9e8e7':h<7?'#c5ad68':isTreeOrigin(wx,wz)?'#245f39':'#4b8050';ctx.fillRect(dx*scale-2,dz*scale-2,5,5)}
+  for(let dx=-radius;dx<=radius;dx+=2)for(let dz=-radius;dz<=radius;dz+=2){const wx=Math.round(camera.position.x+dx),wz=Math.round(camera.position.z+dz),h=terrainHeight(wx,wz),biome=biomeAt(wx,wz);ctx.fillStyle=h<=WATER_LEVEL?'#2d8294':BIOME_INFO[biome][1];ctx.fillRect(dx*scale-2,dz*scale-2,5,5)}
   const dot=(x,z,color,r=3)=>{const dx=(x-camera.position.x)*scale,dz=(z-camera.position.z)*scale;if(Math.hypot(dx,dz)>center-5)return;ctx.fillStyle=color;ctx.beginPath();ctx.arc(dx,dz,r,0,Math.PI*2);ctx.fill()};
   for(const model of remotePlayers.values())dot(model.position.x,model.position.z,'#6ac7ef',3);for(const model of mobs.values())dot(model.position.x,model.position.z,model.userData.boss?'#ff4360':'#e78663',model.userData.boss?5:2);for(const model of npcs.values())dot(model.position.x,model.position.z,'#6de1ad',3);
   const found=new Set(profile.discoveredLandmarks||[]);for(const landmark of landmarks)if(found.has(landmark.id))dot(landmark.x,landmark.z,'#f1bf59',3);
-  const quest=(profile.quests||[])[profile.questIndex||0];if(quest?.marker)dot(quest.marker.x,quest.marker.z,'#fff19a',5);ctx.restore();ctx.fillStyle='#ffffff';ctx.beginPath();ctx.moveTo(center,center-7);ctx.lineTo(center-5,center+5);ctx.lineTo(center+5,center+5);ctx.closePath();ctx.fill();$('#minimap-coords').textContent=`${Math.round(camera.position.x)}, ${Math.round(camera.position.z)}`;
+  const quest=(profile.quests||[])[profile.questIndex||0];if(quest?.marker)dot(quest.marker.x,quest.marker.z,'#fff19a',5);ctx.restore();ctx.fillStyle='#ffffff';ctx.beginPath();ctx.moveTo(center,center-7);ctx.lineTo(center-5,center+5);ctx.lineTo(center+5,center+5);ctx.closePath();ctx.fill();$('#minimap-coords').textContent=`${Math.round(camera.position.x)}, ${Math.round(camera.position.z)}`;$('#biome-label').textContent=BIOME_INFO[biomeAt(camera.position.x,camera.position.z)][0].toUpperCase();
 }
 function renderClans(){if(!profile)return;$('#clan-status').textContent=profile.clan?`Sei membro di ${profile.clan}. Il nome del clan appare sopra ogni compagno.`:'Crea una compagnia o unisciti a un clan esistente.';$('#clan-create').classList.toggle('hidden',Boolean(profile.clan));$('#leave-clan').classList.toggle('hidden',!profile.clan);$('#clan-list').innerHTML=clans.map(clan=>`<article class="clan-item"><strong>${clan.name}</strong><p>${clan.members.length}/12 membri · Leader ${clan.leader}</p>${!profile.clan?`<button data-join="${clan.name}">Unisciti</button>`:''}</article>`).join('')||'<p class="panel-copy">Non esistono ancora clan: puoi fondare il primo.</p>';$$('[data-join]').forEach(button=>button.onclick=()=>socket.emit('clanAction',{action:'join',name:button.dataset.join}))}
 
@@ -714,7 +734,7 @@ function updateMovement(dt) {
   }
   camera.getWorldDirection(forward);forward.y=0;forward.normalize();right.crossVectors(forward,camera.up).normalize();moveDirection.set(0,0,0);
   if(keys.has('KeyW'))moveDirection.add(forward);if(keys.has('KeyS'))moveDirection.sub(forward);if(keys.has('KeyD'))moveDirection.add(right);if(keys.has('KeyA'))moveDirection.sub(right);if(moveDirection.lengthSq())moveDirection.normalize();
-  const running=keys.has('ShiftLeft')||keys.has('ShiftRight');const speed=running?7.2:4.8;velocity.x=moveDirection.x*speed;velocity.z=moveDirection.z*speed;velocity.y-=22*dt;
+  const running=keys.has('ShiftLeft')||keys.has('ShiftRight'),skillSpeed=1+(profile?.skills?.explorer||0)*.04;const speed=(running?7.2:4.8)*skillSpeed;velocity.x=moveDirection.x*speed;velocity.z=moveDirection.z*speed;velocity.y-=22*dt;
   if(keys.has('Space')&&playerOnGround()){velocity.y=8.1;keys.delete('Space')}
   const next=camera.position.clone();next.x+=velocity.x*dt;if(!collidesAt(next))camera.position.x=next.x;
   next.copy(camera.position);next.z+=velocity.z*dt;if(!collidesAt(next))camera.position.z=next.z;
@@ -754,7 +774,7 @@ function onMouseAction(event) {
 
 function miningDuration(type) {
   const held=selectedItem();const hard=['stone','coal','iron','gold','crystal','obsidian','redstone','piston'].includes(type);
-  let duration=hard?900:420;if(held==='woodPickaxe')duration*=.78;if(held==='stonePickaxe')duration*=.58;if(held==='ironPickaxe')duration*=.38;return Math.max(220,duration);
+  let duration=hard?900:420;if(held==='woodPickaxe')duration*=.78;if(held==='stonePickaxe')duration*=.58;if(held==='ironPickaxe')duration*=.38;duration*=1-(profile?.skills?.miner||0)*.07;return Math.max(180,duration);
 }
 function startMining(target){
   const key=keyOf(target.position.x,target.position.y,target.position.z);if(miningAction?.key===key)return;
@@ -846,7 +866,7 @@ addEventListener('keydown',event=>{
   if(['INPUT','SELECT'].includes(document.activeElement?.tagName))return;
   if(/^Digit[1-9]$/.test(event.code)){selectSlot(Number(event.code.slice(-1))-1);return}
   if(event.code==='Tab'){event.preventDefault();$('#inventory-panel').classList.contains('open')?closePanels():openPanel('inventory-panel')}
-  else if(event.code==='KeyI')openPanel('inventory-panel');else if(event.code==='KeyC')openPanel('craft-panel');else if(event.code==='KeyM')openPanel('shop-panel');else if(event.code==='KeyL')openPanel('clan-panel');else if(event.code==='KeyO')openPanel('settings-panel');else if(event.code==='KeyP')openPanel('exploration-panel');else if(event.code==='KeyF')socket.emit('consume',profile?.inventory?.bread?'bread':'healingPotion');
+  else if(event.code==='KeyI')openPanel('inventory-panel');else if(event.code==='KeyC')openPanel('craft-panel');else if(event.code==='KeyM')openPanel('shop-panel');else if(event.code==='KeyL')openPanel('clan-panel');else if(event.code==='KeyO')openPanel('settings-panel');else if(event.code==='KeyP')openPanel('exploration-panel');else if(event.code==='KeyK')openPanel('skills-panel');else if(event.code==='KeyF')socket.emit('consume',profile?.inventory?.bread?'bread':'healingPotion');
   else if(event.code==='KeyE'){
     if(currentTarget?.kind==='lootBox')socket.emit('interactLootBox',currentTarget.id);else if(currentTarget?.kind==='itemDrop')socket.emit('pickupItem',currentTarget.id);else if(currentTarget?.kind==='npc')socket.emit('talkNpc',currentTarget.id);else if(currentTarget?.kind==='chest'&&!currentTarget.claimed)socket.emit('openChest',currentTarget.id);else if(currentTarget?.kind==='block'&&currentTarget.type==='lever')socket.emit('toggleCircuit',currentTarget.position);else if(mountedDragon||nearbyDragon)socket.emit('mountDragon',mountedDragon||nearbyDragon);
   }else keys.add(event.code);
@@ -867,6 +887,7 @@ socket.on('lootBoxes',syncLootBoxes);socket.on('itemDrops',syncItemDrops);
 socket.on('npcDialogue',showNpcDialogue);
 socket.on('chestOpened',data=>{const model=chests.get(data.id);if(model)model.userData.claimed=true;toast(`${data.name}: +${data.coins} monete e nuovi oggetti`,'quest');sound('quest')});
 socket.on('landmarkDiscovered',data=>{toast(`Luogo scoperto: ${data.name} · +${data.xp} XP · +${data.coins} monete`,'quest');sound('quest')});
+socket.on('lootDropped',data=>{toast(`Loot ${RARITY_LABEL[data.rarity]}: ${itemName(data.item)} ×${data.amount}`,'loot');sound('quest')});
 socket.on('questProgress',()=>renderQuests());socket.on('questUnlocked',quest=>{toast(`Nuova missione: ${quest.title}`,'quest');sound('quest')});socket.on('campaignComplete',()=>{toast('Campagna completata: sei l’Eroe di Terranovaland!','quest');sound('quest')});
 socket.on('playerJoined',player=>syncPlayers([...remotePlayers.values()].map(model=>({id:model.userData.id,x:model.position.x,y:model.position.y+EYE_HEIGHT,z:model.position.z,yaw:model.rotation.y,name:model.userData.name,clan:model.userData.clan})).concat(player,self)));
 socket.on('playerMoved',player=>{const model=remotePlayers.get(player.id);if(model){model.userData.target.set(player.x,player.y-EYE_HEIGHT,player.z);model.userData.targetYaw=player.yaw}});

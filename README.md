@@ -2,15 +2,19 @@
 
 Terranovaland è un’avventura voxel multiplayer che funziona direttamente nel browser. Tutti gli esploratori entrano dallo stesso spawn e condividono un mondo persistente: i blocchi scavati o costruiti, i profili, i clan e i progressi restano salvati sul server.
 
+La difficoltà predefinita è **Avventura, medio-bassa**: i nemici richiedono attenzione ma la progressione rimane accessibile, la vita si rigenera lentamente fuori dal combattimento e i boss sono affrontabili con preparazione o con un piccolo gruppo di amici.
+
 ## Cosa include
 
-- mondo 3D procedurale molto esteso, caricato a chunk, con biomi, foreste, neve, spiagge, fiumi, laghi, miniere e ciclo giorno/notte;
+- mondo 3D procedurale molto esteso, caricato a chunk, con sei biomi distinti, vegetazione dedicata, foreste, deserti, paludi, gelo, zone vulcaniche, fiumi, laghi, miniere e ciclo giorno/notte;
 - multiplayer in tempo reale con nomi, chat, animazioni e spawn comune;
 - scavo, costruzione, collisioni, corsa, salto e nove slot rapidi;
 - 15 materiali, minerali rari, strumenti, armi, crafting e inventario;
 - quattro famiglie di nemici, due boss con barra vita, drop, IA, difficoltà e ricompense differenti;
 - campagna progressiva di 15 missioni, NPC con dialoghi, XP, livelli, tesori e ricompense uniche;
-- otto luoghi da scoprire con ricompense persistenti, diario di esplorazione, bussola obiettivo e minimappa dinamica;
+- dieci luoghi da scoprire e tre dungeon esplorabili con tesori dedicati, diario, bussola e minimappa dinamica;
+- loot fisico dei mostri con cinque rarità, oggetti rari ed equipaggiamento leggendario;
+- quattro abilità potenziabili — Minatore, Guerriero, Vitalità ed Esploratore — con punti ottenuti salendo di livello;
 - equipaggiamento indossabile, armatura, pozioni e mercato;
 - clan fino a 12 membri;
 - draghi condivisi che volano autonomamente e possono essere cavalcati;
@@ -20,7 +24,7 @@ Terranovaland è un’avventura voxel multiplayer che funziona direttamente nel 
 - oggetti fisici gettabili, raccoglibili e regalabili ai giocatori vicini;
 - box persistente alla morte con inventario e monete recuperabili o trasportabili da un amico;
 - salvataggio persistente e protezione della piazza iniziale;
-- UI responsive, inventario personale, impostazioni grafiche/audio e oggetto visibile in prima persona;
+- UI responsive, inventario personale, impostazioni grafiche/audio e modelli distinti di armi, strumenti, pozioni e blocchi visibili in prima persona;
 - immagine Docker, health check e configurazione pronta per VPS.
 
 ## Avvio locale
@@ -113,6 +117,7 @@ Il nome scelto all’accesso identifica il profilo. Questa modalità è intenzio
 | `T` oppure `Invio` | Chat |
 | `O` | Impostazioni |
 | `P` | Diario di esplorazione e luoghi scoperti |
+| `K` | Abilità e punti disponibili |
 
 Quando un esploratore muore, il suo inventario e le monete vengono racchiusi in un box nel punto della sconfitta. Il proprietario può recuperare tutto con `E`; un altro giocatore può raccogliere il box, trasportarlo e posarlo vicino al proprietario.
 

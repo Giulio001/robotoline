@@ -54,7 +54,7 @@
     <div id="quest-direction" class="quest-direction hidden"><span>◆</span><div><small>OBIETTIVO</small><b></b></div><em></em></div>
     <div id="boss-bar" class="boss-bar hidden"><div><span>BOSS</span><strong></strong><em></em></div><i></i></div>
 
-    <section id="minimap" class="minimap"><header><span>MAPPA</span><b id="minimap-coords">0, 0</b></header><canvas id="minimap-canvas" width="160" height="160"></canvas><small>▲ TU · ◆ OBIETTIVO</small></section>
+    <section id="minimap" class="minimap"><header><span id="biome-label">PRATERIE</span><b id="minimap-coords">0, 0</b></header><canvas id="minimap-canvas" width="160" height="160"></canvas><small>▲ TU · ◆ OBIETTIVO</small></section>
 
     <header class="topbar">
       <div class="brand-mini"><i>◆</i><span>TERRANOVA<strong>LAND</strong></span></div>
@@ -99,13 +99,14 @@
       <button data-panel="clan-panel"><span>♜</span>Clan <kbd>L</kbd></button>
       <button data-panel="settings-panel"><span>⚙</span>Impostazioni <kbd>O</kbd></button>
       <button data-panel="exploration-panel"><span>⌖</span>Esplorazione <kbd>P</kbd></button>
+      <button data-panel="skills-panel"><span>✦</span>Abilità <kbd>K</kbd></button>
     </div>
   </div>
 
   <div id="panel-scrim" class="panel-scrim hidden"></div>
   <aside id="inventory-panel" class="game-panel">
     <button class="panel-close">×</button><p class="eyebrow">LA TUA CASETTA · TAB</p><h2>Inventario</h2>
-    <p class="panel-copy">Click destro per indossare. Click sinistro per regalare o gettare un oggetto nel mondo.</p>
+    <p class="panel-copy">Click destro per impugnare armi, strumenti e blocchi oppure indossare l’armatura. L’oggetto selezionato apparirà nella mano in prima persona.</p>
     <div id="equipment-slots" class="equipment-slots"></div>
     <div id="inventory-grid" class="item-grid"></div>
     <div id="inventory-actions" class="inventory-actions hidden"></div>
@@ -132,9 +133,16 @@
     <p class="panel-copy">Scopri laghi, fiumi, castelli, rovine, santuari e dungeon. Ogni nuova scoperta assegna XP e monete.</p>
     <div id="landmark-list" class="landmark-list"></div>
   </aside>
+  <aside id="skills-panel" class="game-panel">
+    <button class="panel-close">×</button><p class="eyebrow">PROGRESSIONE · K</p><h2>Abilità</h2>
+    <p class="panel-copy">Guadagna un punto a ogni nuovo livello e specializza il tuo esploratore.</p>
+    <div class="skill-points">PUNTI DISPONIBILI <b id="skill-points">0</b></div>
+    <div id="skill-list" class="skill-list"></div>
+  </aside>
   <aside id="settings-panel" class="game-panel">
     <button class="panel-close">×</button><p class="eyebrow">ESPERIENZA DI GIOCO</p><h2>Impostazioni</h2>
     <p class="panel-copy">Le preferenze vengono salvate automaticamente su questo browser.</p>
+    <div class="difficulty-note"><span>DIFFICOLTÀ</span><b>Avventura · medio-bassa</b><small>Progressione accessibile, combattimenti preparabili e boss pensati anche per piccoli gruppi.</small></div>
     <div class="settings-list">
       <label class="setting-row"><span><b>Campo visivo</b><small>Più ampio mostra una porzione maggiore del mondo.</small></span><output id="fov-output">88°</output><input id="fov-setting" type="range" min="70" max="105" step="1" value="88"></label>
       <label class="setting-row"><span><b>Sensibilità visuale</b><small>Velocità del movimento della telecamera.</small></span><output id="sensitivity-output">1.0×</output><input id="sensitivity-setting" type="range" min="0.4" max="2" step="0.1" value="1"></label>
@@ -157,7 +165,7 @@
         <div><kbd>Click dx</kbd><span>Posiziona blocco</span></div><div><kbd>E</kbd><span>Cavalca / scendi dal drago</span></div>
         <div><kbd>F</kbd><span>Mangia il pane</span></div><div><kbd>1 — 9</kbd><span>Barra rapida</span></div>
         <div><kbd>Rotella</kbd><span>Cambia oggetto in mano</span></div><div><kbd>Tab</kbd><span>Inventario personale</span></div>
-        <div><kbd>T / Invio</kbd><span>Apri la chat</span></div><div><kbd>P</kbd><span>Mappa e scoperte</span></div>
+        <div><kbd>T / Invio</kbd><span>Apri la chat</span></div><div><kbd>P / K</kbd><span>Mappa / abilità</span></div>
       </div><p class="tip">Suggerimento: crea presto un piccone. I minerali più preziosi si trovano sotto la superficie.</p>
     </div>
   </div>
