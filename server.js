@@ -96,6 +96,7 @@ function biomeAt(x, z) {
 }
 
 const SPAWN = Object.freeze({ x: 0, y: terrainHeight(0, 0) + 2.2, z: 0 });
+const SPAWN_SAFE_RADIUS = 20;
 
 const NPCS = [
   { id:'elda',name:'Elda',role:'Custode di Terranovaland',x:2,y:terrainHeight(2,0)+1.1,z:0,color:'#5fb98e' },
@@ -307,7 +308,7 @@ function randomWorldPosition(minDistance = 10, center = { x: 0, z: 0 }) {
 
 function spawnMonster(kind, center) {
   const stats = MONSTER_KINDS[kind];
-  const position = randomWorldPosition(9, center);
+  const position = randomWorldPosition(center ? 9 : SPAWN_SAFE_RADIUS + 4, center || SPAWN);
   const monster = { id: randomId('mob'), kind, ...position, hp: stats.hp, maxHp: stats.hp, yaw: Math.random() * Math.PI * 2, target: null, lastAttack: 0 };
   monsters.set(monster.id, monster);
   return monster;
@@ -1027,8 +1028,11 @@ function updateWorld() {
     let closest = null;
     let closestDistance = 16;
     const stats = MONSTER_KINDS[monster.kind];
+    const spawnDistance=Math.hypot(monster.x-SPAWN.x,monster.z-SPAWN.z);
+    if(!stats.boss&&!stats.sky&&spawnDistance<SPAWN_SAFE_RADIUS){const angle=spawnDistance>.1?Math.atan2(monster.x-SPAWN.x,monster.z-SPAWN.z):monster.yaw;monster.x+=Math.sin(angle)*stats.speed*2.2*dt;monster.z+=Math.cos(angle)*stats.speed*2.2*dt;monster.target=null;continue}
     for (const player of players.values()) {
       const currentDistance = Math.hypot(player.x - monster.x, player.z - monster.z);
+      if(Math.hypot(player.x-SPAWN.x,player.z-SPAWN.z)<SPAWN_SAFE_RADIUS)continue;
       if (stats.sky && Math.abs(player.y - monster.y) > 6) continue;
       if (currentDistance < closestDistance && player.health > 0 && !player.mountedDragon) {
         closest = player;
@@ -1089,6 +1093,7 @@ function updateWorld() {
   if (now - lastMonsterBalance > 5000 && players.size) {
     lastMonsterBalance = now;
     for (const player of players.values()) {
+      if(Math.hypot(player.x-SPAWN.x,player.z-SPAWN.z)<SPAWN_SAFE_RADIUS)continue;
       const nearby = [...monsters.values()].filter(monster => Math.hypot(monster.x - player.x, monster.z - player.z) < 34).length;
       if (nearby >= 3) continue;
       const candidate = [...monsters.values()].find(monster => !MONSTER_KINDS[monster.kind].boss && !MONSTER_KINDS[monster.kind].sky && [...players.values()].every(other => Math.hypot(monster.x - other.x, monster.z - other.z) > 55));
@@ -1100,7 +1105,7 @@ function updateWorld() {
 }
 
 if (require.main === module) {
-  setInterval(updateWorld, 100);
+  setInterval(updateWorld, 150);
   setInterval(persistSoon, 30_000);
   server.listen(PORT, HOST, () => {
     console.log(`Terranovaland è online su http://${HOST}:${PORT}`);

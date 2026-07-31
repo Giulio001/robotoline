@@ -24,6 +24,8 @@ La difficoltà predefinita è **Avventura, medio-bassa**: i nemici richiedono at
 - oggetti fisici gettabili, raccoglibili e regalabili ai giocatori vicini;
 - box persistente alla morte con inventario e monete recuperabili o trasportabili da un amico;
 - salvataggio persistente e protezione della piazza iniziale;
+- zona sicura di 20 blocchi allo spawn: i mob non possono avvicinarsi né inseguire i nuovi giocatori;
+- streaming incrementale dei chunk, cache della generazione e aggiornamento locale dei blocchi per evitare scatti durante scavo ed esplorazione;
 - UI responsive, inventario personale, impostazioni grafiche/audio e modelli distinti di armi, strumenti, pozioni e blocchi visibili in prima persona;
 - immagine Docker, health check e configurazione pronta per VPS.
 

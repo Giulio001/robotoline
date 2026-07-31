@@ -57,8 +57,15 @@ let mountedDragon = null;
 let selectedSlot = 0;
 let hotbarItems = ['woodPickaxe', 'grass', 'dirt', 'wood', 'stone', 'bread', null, null, null];
 let rebuildTimer = null;
+let pendingWorldRefresh = false;
+let pendingForceRefresh = false;
+const pendingDirtyChunks = new Set();
 let renderedChunkX = null;
 let renderedChunkZ = null;
+const loadedChunks = new Map();
+const queuedChunks = new Set();
+let chunkQueue = [];
+let chunkPumpTimer = null;
 let lastMoveSent = 0;
 let lastAction = 0;
 let miningAction = null;
@@ -85,6 +92,7 @@ const right = new THREE.Vector3();
 const raycaster = new THREE.Raycaster();
 raycaster.far = 6;
 const chunkFeatureCache = new Map();
+const generatedChunkCache = new Map();
 
 function fract(value) { return value - Math.floor(value); }
 function terrainHeight(x, z) {
@@ -235,7 +243,7 @@ function generatedBlock(x, y, z) {
 function getBlock(x, y, z) {
   const override = overrides[keyOf(x, y, z)];
   if (override === 0) return null;
-  return override || generatedBlock(x, y, z);
+  if(override)return override;const cacheKey=chunkKey(Math.floor(x/CHUNK_SIZE),Math.floor(z/CHUNK_SIZE));let cache=generatedChunkCache.get(cacheKey);if(!cache){cache=new Map();generatedChunkCache.set(cacheKey,cache)}const localKey=`${x},${y},${z}`;if(cache.has(localKey))return cache.get(localKey);const generated=generatedBlock(x,y,z);cache.set(localKey,generated);return generated;
 }
 
 function isSolid(type) { return Boolean(type && !['water', 'torch', 'redstoneWire', 'lever'].includes(type)); }
@@ -469,59 +477,42 @@ function createAtmosphere() {
   }
 }
 
-function buildWorld() {
-  const progress = $('#loading-progress');
-  progress.style.width = '22%';
-  const centerChunkX=Math.floor((camera?.position.x||0)/CHUNK_SIZE),centerChunkZ=Math.floor((camera?.position.z||0)/CHUNK_SIZE);
-  const radius=settings.quality==='low'?24:settings.quality==='medium'?32:40;
-  const startX=Math.max(-WORLD_LIMIT,centerChunkX*CHUNK_SIZE-radius),endX=Math.min(WORLD_LIMIT,centerChunkX*CHUNK_SIZE+radius);
-  const startZ=Math.max(-WORLD_LIMIT,centerChunkZ*CHUNK_SIZE-radius),endZ=Math.min(WORLD_LIMIT,centerChunkZ*CHUNK_SIZE+radius);
-  const positionsByType = {};
-  const types = [...Object.keys(blockMaterials), 'water'];
-  types.forEach(type => positionsByType[type] = []);
-  for (let x = startX; x <= endX; x++) {
-    for (let z = startZ; z <= endZ; z++) {
-      const top = Math.max(terrainHeight(x, z) + 11, WATER_LEVEL + 1, 30);
-      for (let y = 0; y <= top; y++) {
-        const type = getBlock(x, y, z);
-        if (!type || !positionsByType[type]) continue;
-        const exposed = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].some(([dx,dy,dz]) => {
-          const neighbor = getBlock(x + dx, y + dy, z + dz);
-          return !neighbor || (type !== 'water' && neighbor === 'water') || (type === 'water' && neighbor !== 'water');
-        });
-        const powered=circuitPower[keyOf(x,y,z)]&&['redstoneWire','lever','lamp','piston'].includes(type);
-        const renderType=powered?`${type}On`:type;
-        if (exposed && positionsByType[renderType]) positionsByType[renderType].push({ x, y, z });
-      }
-    }
-  }
-  progress.style.width = '62%';
-  while (worldGroup.children.length) {
-    const child = worldGroup.children.pop(); child.geometry?.dispose();
-  }
-  blockMeshes = [];
-  const matrix = new THREE.Matrix4();
-  for (const [type, positions] of Object.entries(positionsByType)) {
-    if (!positions.length) continue;
-    const baseType=type.endsWith('On')?type.slice(0,-2):type;
-    const thin=baseType==='redstoneWire',short=baseType==='lever',extended=type==='pistonOn';
-    const geometry = new THREE.BoxGeometry(type === 'water' ? 1 : 1.001, type === 'water' ? .82 : thin ? .08 : short ? .3 : extended ? 1.3 : 1.001, type === 'water' ? 1 : 1.001);
-    const mesh = new THREE.InstancedMesh(geometry, blockMaterials[type], positions.length);
-    positions.forEach((position, index) => {
-      const offset=type==='water'?-.09:thin?-.46:short?-.35:extended?.15:0;matrix.makeTranslation(position.x, position.y + offset, position.z); mesh.setMatrixAt(index, matrix);
-    });
-    mesh.instanceMatrix.needsUpdate = true; mesh.userData.positions = positions; mesh.userData.blockType = baseType;
-    mesh.receiveShadow = type !== 'water'; mesh.castShadow = ['wood', 'leaves'].includes(type);
-    worldGroup.add(mesh); if (type !== 'water') blockMeshes.push(mesh);
-  }
-  progress.style.width = '92%';
-  renderedChunkX=centerChunkX;renderedChunkZ=centerChunkZ;
-  worldReady = true;
+function chunkKey(chunkX,chunkZ){return`${chunkX},${chunkZ}`}
+function renderChunkRadius(){return settings.quality==='low'?1:2}
+function desiredChunkCoordinates(){
+  const centerX=Math.floor((camera?.position.x||0)/CHUNK_SIZE),centerZ=Math.floor((camera?.position.z||0)/CHUNK_SIZE),radius=renderChunkRadius(),result=[];
+  for(let x=centerX-radius;x<=centerX+radius;x++)for(let z=centerZ-radius;z<=centerZ+radius;z++)result.push({x,z,distance:Math.hypot(x-centerX,z-centerZ)});
+  return result.sort((a,b)=>a.distance-b.distance);
 }
-
-function scheduleWorldRebuild() {
-  if(rebuildTimer)return;
-  rebuildTimer = setTimeout(()=>{rebuildTimer=null;buildWorld()}, 90);
+function disposeChunk(key){
+  const group=loadedChunks.get(key);if(!group)return;const meshes=new Set(group.userData.blockMeshes||[]);blockMeshes=blockMeshes.filter(mesh=>!meshes.has(mesh));
+  group.traverse(child=>child.geometry?.dispose());worldGroup.remove(group);loadedChunks.delete(key);
+}
+function buildChunk(chunkX,chunkZ){
+  const key=chunkKey(chunkX,chunkZ);disposeChunk(key);const group=new THREE.Group(),positionsByType={};for(const type of [...Object.keys(blockMaterials),'water'])positionsByType[type]=[];
+  const startX=chunkX*CHUNK_SIZE,startZ=chunkZ*CHUNK_SIZE,endX=startX+CHUNK_SIZE-1,endZ=startZ+CHUNK_SIZE-1;
+  for(let x=startX;x<=endX;x++)for(let z=startZ;z<=endZ;z++)for(let y=0,top=Math.max(terrainHeight(x,z)+11,WATER_LEVEL+1,30);y<=top;y++){
+    const type=getBlock(x,y,z);if(!type||!positionsByType[type])continue;const exposed=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].some(([dx,dy,dz])=>{const neighbor=getBlock(x+dx,y+dy,z+dz);return!neighbor||(type!=='water'&&neighbor==='water')||(type==='water'&&neighbor!=='water')});
+    const powered=circuitPower[keyOf(x,y,z)]&&['redstoneWire','lever','lamp','piston'].includes(type),renderType=powered?`${type}On`:type;if(exposed&&positionsByType[renderType])positionsByType[renderType].push({x,y,z});
+  }
+  const matrix=new THREE.Matrix4(),chunkMeshes=[];for(const[type,positions]of Object.entries(positionsByType)){if(!positions.length)continue;const baseType=type.endsWith('On')?type.slice(0,-2):type,thin=baseType==='redstoneWire',short=baseType==='lever',extended=type==='pistonOn',geometry=new THREE.BoxGeometry(type==='water'?1:1.001,type==='water'?.82:thin?.08:short?.3:extended?1.3:1.001,type==='water'?1:1.001),mesh=new THREE.InstancedMesh(geometry,blockMaterials[type],positions.length);positions.forEach((position,index)=>{const offset=type==='water'?-.09:thin?-.46:short?-.35:extended?.15:0;matrix.makeTranslation(position.x,position.y+offset,position.z);mesh.setMatrixAt(index,matrix)});mesh.instanceMatrix.needsUpdate=true;mesh.userData.positions=positions;mesh.userData.blockType=baseType;mesh.receiveShadow=type!=='water';mesh.castShadow=['wood','leaves'].includes(type);group.add(mesh);chunkMeshes.push(mesh);if(type!=='water')blockMeshes.push(mesh)}
+  group.userData.blockMeshes=chunkMeshes;loadedChunks.set(key,group);worldGroup.add(group);return group;
+}
+function pumpChunkQueue(){
+  chunkPumpTimer=null;const next=chunkQueue.shift();if(!next){$('#stream-status')?.classList.add('hidden');return}$('#stream-status')?.classList.remove('hidden');queuedChunks.delete(chunkKey(next.x,next.z));if(!loadedChunks.has(chunkKey(next.x,next.z)))buildChunk(next.x,next.z);if(chunkQueue.length)chunkPumpTimer=setTimeout(pumpChunkQueue,12);else $('#stream-status')?.classList.add('hidden');
+}
+function refreshVisibleChunks(force=false){
+  const desired=desiredChunkCoordinates(),wanted=new Set(desired.map(chunk=>chunkKey(chunk.x,chunk.z)));for(const key of [...loadedChunks.keys()])if(force||!wanted.has(key))disposeChunk(key);
+  if(!force){const centerX=Math.floor(camera.position.x/CHUNK_SIZE),centerZ=Math.floor(camera.position.z/CHUNK_SIZE),keepRadius=renderChunkRadius()+1;for(const key of generatedChunkCache.keys()){const[x,z]=key.split(',').map(Number);if(Math.abs(x-centerX)>keepRadius||Math.abs(z-centerZ)>keepRadius)generatedChunkCache.delete(key)}}
+  if(force){chunkQueue=[];queuedChunks.clear()}else{chunkQueue=chunkQueue.filter(chunk=>wanted.has(chunkKey(chunk.x,chunk.z)));queuedChunks.clear();for(const chunk of chunkQueue)queuedChunks.add(chunkKey(chunk.x,chunk.z))}for(const chunk of desired){const key=chunkKey(chunk.x,chunk.z);if(loadedChunks.has(key)||queuedChunks.has(key))continue;queuedChunks.add(key);chunkQueue.push(chunk)}if(chunkQueue.length){$('#stream-status')?.classList.remove('hidden');if(!chunkPumpTimer)chunkPumpTimer=setTimeout(pumpChunkQueue,0)}
+  renderedChunkX=Math.floor(camera.position.x/CHUNK_SIZE);renderedChunkZ=Math.floor(camera.position.z/CHUNK_SIZE);
+}
+function buildWorld(){
+  const progress=$('#loading-progress');if(progress)progress.style.width='18%';for(const key of [...loadedChunks.keys()])disposeChunk(key);chunkQueue=[];queuedChunks.clear();blockMeshes=[];const desired=desiredChunkCoordinates();desired.forEach((chunk,index)=>{buildChunk(chunk.x,chunk.z);if(progress)progress.style.width=`${18+Math.round((index+1)/desired.length*74)}%`});renderedChunkX=Math.floor(camera.position.x/CHUNK_SIZE);renderedChunkZ=Math.floor(camera.position.z/CHUNK_SIZE);worldReady=true;
+}
+function scheduleWorldRebuild(position=null,force=false){
+  if(force)pendingForceRefresh=true;else if(!position)pendingWorldRefresh=true;else{const cx=Math.floor(position.x/CHUNK_SIZE),cz=Math.floor(position.z/CHUNK_SIZE),targets=[[cx,cz]],localX=((position.x%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE,localZ=((position.z%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE;if(localX===0)targets.push([cx-1,cz]);if(localX===CHUNK_SIZE-1)targets.push([cx+1,cz]);if(localZ===0)targets.push([cx,cz-1]);if(localZ===CHUNK_SIZE-1)targets.push([cx,cz+1]);for(const[x,z]of targets)pendingDirtyChunks.add(chunkKey(x,z))}
+  if(rebuildTimer)return;rebuildTimer=setTimeout(()=>{rebuildTimer=null;if(pendingForceRefresh){pendingForceRefresh=false;pendingWorldRefresh=false;pendingDirtyChunks.clear();refreshVisibleChunks(true);return}if(pendingWorldRefresh){pendingWorldRefresh=false;refreshVisibleChunks(false)}for(const key of pendingDirtyChunks){const[x,z]=key.split(',').map(Number);if(loadedChunks.has(key))buildChunk(x,z)}pendingDirtyChunks.clear()},35);
 }
 
 function simpleMaterial(color, emissive = 0) { return new THREE.MeshToonMaterial({ color, emissive }); }
@@ -756,10 +747,11 @@ function updateMovement(dt) {
 }
 
 function findEntityRoot(object){let current=object;while(current){if(current.userData?.entityRoot)return current.userData.entityRoot;if(current.userData?.entityType)return current;current=current.parent}return null}
+function nearbyBlockMeshes(){const cx=Math.floor(camera.position.x/CHUNK_SIZE),cz=Math.floor(camera.position.z/CHUNK_SIZE),result=[];for(let x=cx-1;x<=cx+1;x++)for(let z=cz-1;z<=cz+1;z++){const group=loadedChunks.get(chunkKey(x,z));if(group)result.push(...(group.userData.blockMeshes||[]).filter(mesh=>mesh.userData.blockType!=='water'))}return result}
 function updateTarget() {
   if(!worldReady||!controls.isLocked)return;
   raycaster.setFromCamera(new THREE.Vector2(0,0),camera);
-  const blockHits=raycaster.intersectObjects(blockMeshes,false);const entityHits=raycaster.intersectObjects([...mobs.values(),...dragons.values(),...lootBoxes.values(),...itemDrops.values(),...npcs.values(),...chests.values()],true);
+  const blockHits=raycaster.intersectObjects(nearbyBlockMeshes(),false);const entityHits=raycaster.intersectObjects([...mobs.values(),...dragons.values(),...lootBoxes.values(),...itemDrops.values(),...npcs.values(),...chests.values()],true);
   const blockHit=blockHits[0];const entityHit=entityHits.find(hit=>findEntityRoot(hit.object));
   if(entityHit&&(!blockHit||entityHit.distance<blockHit.distance)){
     const root=findEntityRoot(entityHit.object);currentTarget={kind:root.userData.entityType,id:root.userData.id,distance:entityHit.distance,owner:root.userData.owner,item:root.userData.item,name:root.userData.name,claimed:root.userData.claimed};selectionBox.visible=false;
@@ -894,8 +886,8 @@ socket.on('loginError',message=>$('#login-error').textContent=message);
 socket.on('connect_error',()=>$('#login-error').textContent='Server non raggiungibile. Riprovo automaticamente…');
 socket.on('profile',next=>refreshProfile({...next,quests:next.quests||profile?.quests||[]}));
 socket.on('toast',data=>{toast(data.text,data.type);if(data.type==='quest')sound('quest');else if(data.type==='coin')sound('coin')});
-socket.on('blockChanged',data=>{overrides[keyOf(data.x,data.y,data.z)]=data.type;scheduleWorldRebuild();if(data.by===profile?.name&&data.type!==0)sound('place')});
-socket.on('circuitState',next=>{circuitPower=next||{};scheduleWorldRebuild()});
+socket.on('blockChanged',data=>{overrides[keyOf(data.x,data.y,data.z)]=data.type;scheduleWorldRebuild(data);if(data.by===profile?.name&&data.type!==0)sound('place')});
+socket.on('circuitState',next=>{circuitPower=next||{};scheduleWorldRebuild(null,true)});
 socket.on('leverChanged',data=>{sound('ui');if(data.by===profile?.name)toast(data.active?'Circuito alimentato':'Circuito disattivato')});
 socket.on('lootBoxes',syncLootBoxes);socket.on('itemDrops',syncItemDrops);
 socket.on('npcDialogue',showNpcDialogue);

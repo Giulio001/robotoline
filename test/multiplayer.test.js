@@ -22,6 +22,7 @@ test('un giocatore entra e riceve lo stato multiplayer completo', async t => {
   assert.equal(payload.self.name, playerName);
   assert.deepEqual(payload.spawn, SPAWN);
   assert.ok(payload.monsters.length >= 26);
+  assert.ok(payload.monsters.filter(monster => ['slime','boar','golem','wraith'].includes(monster.kind)).every(monster => Math.hypot(monster.x, monster.z) >= 20));
   assert.ok(payload.dragons.length >= 2);
   assert.ok(payload.npcs.length >= 5);
   assert.ok(payload.chests.length >= 7);
