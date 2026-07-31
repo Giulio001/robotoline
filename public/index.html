@@ -1,183 +1,153 @@
 <!doctype html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#101b21">
-  <meta name="description" content="Terranovaland, avventura voxel multiplayer nel browser">
-  <title>Terranovaland</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="Tris Online: sfida i tuoi amici in tempo reale.">
+  <title>Tris Online · Multiplayer</title>
   <link rel="stylesheet" href="/styles.css">
-  <script type="importmap">
-    { "imports": { "three": "/vendor/three.module.js" } }
-  </script>
+  <script src="/socket.io/socket.io.js" defer></script>
+  <script src="/game.js" defer></script>
 </head>
 <body>
-  <div id="game"></div>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
 
-  <section id="login-screen" class="screen active">
-    <div class="aurora aurora-one"></div><div class="aurora aurora-two"></div>
-    <div class="login-card">
-      <div class="crest" aria-hidden="true"><span>◆</span></div>
-      <p class="eyebrow">UN MONDO CONDIVISO</p>
-      <h1>TERRANOVA<span>LAND</span></h1>
-      <p class="intro">Costruisci la tua fortezza, affronta le creature delle terre selvagge e conquista i cieli in groppa a un drago.</p>
-      <form id="login-form">
-        <label for="player-name">Come ti chiameranno gli esploratori?</label>
-        <div class="login-row">
-          <input id="player-name" maxlength="18" minlength="2" autocomplete="nickname" placeholder="Il tuo nome" required>
-          <button class="primary" type="submit">Entra nel mondo <span>→</span></button>
+  <header class="topbar">
+    <a class="mini-brand" href="/" aria-label="Tris Online">
+      <span class="mini-mark"><i>X</i><b>O</b></span>
+      <strong>TRIS <em>ONLINE</em></strong>
+    </a>
+    <div class="presence"><span class="presence-dot"></span><b id="online-count">0</b> online</div>
+  </header>
+
+  <main>
+    <section id="login-view" class="view active" aria-labelledby="login-title">
+      <div class="hero-copy">
+        <span class="eyebrow">MULTIPLAYER IN TEMPO REALE</span>
+        <h1 id="login-title">Tre simboli.<br><span>Una vittoria.</span></h1>
+        <p>Sfida un amico o trova subito un avversario. Niente registrazione: scegli un nome e gioca.</p>
+        <div class="mini-board" aria-hidden="true">
+          <i>X</i><i></i><i>O</i><i></i><i>X</i><i></i><i>O</i><i></i><i>X</i>
         </div>
-        <p id="login-error" class="form-error" role="alert"></p>
+      </div>
+
+      <form id="login-form" class="card login-card">
+        <div class="card-icon">✦</div>
+        <span class="step">PRONTO A GIOCARE?</span>
+        <h2>Entra nell’arena</h2>
+        <p>Il tuo nome sarà visibile al tuo avversario.</p>
+        <label for="player-name">Nome giocatore</label>
+        <div class="input-shell">
+          <span>◎</span>
+          <input id="player-name" name="name" minlength="2" maxlength="18" autocomplete="nickname" placeholder="Es. Giulio" required autofocus>
+        </div>
+        <button class="primary-button" type="submit"><span>Accedi</span><b>→</b></button>
+        <small id="login-error" class="form-error" role="alert"></small>
       </form>
-      <div class="feature-strip">
-        <div><b>∞</b><span>Mondo persistente</span></div>
-        <div><b>⚔</b><span>Avventura cooperativa</span></div>
-        <div><b>◈</b><span>Economia e clan</span></div>
-      </div>
-    </div>
-    <footer>Terranovaland · Creato per giocare insieme</footer>
-  </section>
-
-  <section id="loading-screen" class="screen">
-    <div class="loading-mark"><i></i><i></i><i></i></div>
-    <h2>Sto generando Terranovaland</h2>
-    <p id="loading-copy">Le montagne stanno prendendo forma…</p>
-    <div class="progress"><span id="loading-progress"></span></div>
-  </section>
-
-  <div id="hud" class="hidden">
-    <div id="vignette"></div>
-    <div id="damage-flash"></div>
-    <div id="crosshair"><span></span><span></span></div>
-    <div id="target-label"></div>
-    <div id="mining-progress" class="mining-progress hidden"><i></i></div>
-    <div id="quest-direction" class="quest-direction hidden"><span>◆</span><div><small>OBIETTIVO</small><b></b></div><em></em></div>
-    <div id="boss-bar" class="boss-bar hidden"><div><span>BOSS</span><strong></strong><em></em></div><i></i></div>
-
-    <section id="minimap" class="minimap"><header><span id="biome-label">PRATERIE</span><b id="minimap-coords">0, 0</b></header><canvas id="minimap-canvas" width="160" height="160"></canvas><small>▲ TU · ◆ OBIETTIVO <b id="stream-status" class="hidden">CARICAMENTO…</b></small></section>
-
-    <header class="topbar">
-      <div class="brand-mini"><i>◆</i><span>TERRANOVA<strong>LAND</strong></span></div>
-      <div class="world-status">
-        <span id="day-icon">☀</span>
-        <div><small id="day-label">GIORNO</small><b id="online-count">1 esploratore online</b></div>
-      </div>
-      <div class="currency"><span>◈</span><b id="coins">0</b><small>MONETE</small></div>
-      <button id="settings-button" class="icon-button" aria-label="Impostazioni">⚙</button>
-      <button id="help-button" class="icon-button" aria-label="Comandi">?</button>
-    </header>
-
-    <aside class="left-column">
-      <section class="hud-card player-card">
-        <div class="avatar" id="avatar-letter">T</div>
-        <div class="player-meta"><strong id="player-label">Esploratore</strong><span id="clan-label">Senza clan</span></div>
-        <div class="level-badge" id="level-badge">1</div>
-        <div class="health-row"><span>♥</span><div class="bar"><i id="health-bar"></i></div><b id="health-text">100</b></div>
-        <div class="mana-row"><span>✦</span><div class="bar"><i id="mana-bar"></i></div><b id="mana-text">100</b></div>
-        <div class="xp-row"><span>XP</span><div class="bar"><i id="xp-bar"></i></div><b id="xp-text">0</b></div>
-      </section>
-
-      <section class="hud-card quest-card">
-        <div class="card-title"><span>MISSIONI ATTIVE</span><button id="toggle-quests">−</button></div>
-        <div id="quests"></div>
-      </section>
-    </aside>
-
-    <div id="interaction-hint" class="interaction-hint hidden"><kbd>E</kbd><span></span></div>
-
-    <section id="chat" class="chat-panel">
-      <div id="chat-log"></div>
-      <form id="chat-form" class="hidden"><input id="chat-input" maxlength="180" placeholder="Scrivi un messaggio…"><button>Invia</button></form>
-      <p>Premi <kbd>T</kbd> oppure <kbd>Invio</kbd> per parlare</p>
     </section>
 
-    <nav id="hotbar" aria-label="Inventario rapido"></nav>
+    <section id="lobby-view" class="view" aria-labelledby="lobby-title">
+      <div class="lobby-heading">
+        <span class="eyebrow">BENTORNATO, <b id="player-label"></b></span>
+        <h1 id="lobby-title">Come vuoi <span>giocare?</span></h1>
+        <p>Trova un avversario online oppure invita direttamente un amico.</p>
+      </div>
 
-    <div class="action-dock">
-      <button data-panel="inventory-panel"><span>▦</span>Inventario <kbd>I</kbd></button>
-      <button data-panel="craft-panel"><span>⚒</span>Crafting <kbd>C</kbd></button>
-      <button data-panel="shop-panel"><span>◈</span>Mercato <kbd>M</kbd></button>
-      <button data-panel="clan-panel"><span>♜</span>Clan <kbd>L</kbd></button>
-      <button data-panel="settings-panel"><span>⚙</span>Impostazioni <kbd>O</kbd></button>
-      <button data-panel="exploration-panel"><span>⌖</span>Esplorazione <kbd>P</kbd></button>
-      <button data-panel="skills-panel"><span>✦</span>Abilità <kbd>K</kbd></button>
+      <div class="mode-grid">
+        <article class="mode-card quick-card">
+          <span class="mode-number">01</span>
+          <div class="mode-symbols"><i>X</i><i>O</i></div>
+          <div>
+            <small>PARTITA RAPIDA</small>
+            <h2>Trova un avversario</h2>
+            <p>Ti abbiniamo automaticamente al primo giocatore disponibile.</p>
+          </div>
+          <button id="quick-match" class="primary-button"><span>Gioca adesso</span><b>⚡</b></button>
+        </article>
+
+        <article class="mode-card private-card">
+          <span class="mode-number">02</span>
+          <div class="lock-symbol">⌁</div>
+          <div>
+            <small>STANZA PRIVATA</small>
+            <h2>Gioca con un amico</h2>
+            <p>Crea una stanza e condividi il codice, oppure inseriscine uno.</p>
+          </div>
+          <button id="create-room" class="secondary-button">Crea una stanza <span>＋</span></button>
+          <div class="join-row">
+            <input id="room-code-input" maxlength="5" autocomplete="off" aria-label="Codice stanza" placeholder="CODICE">
+            <button id="join-room" aria-label="Entra nella stanza">Entra →</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="game-view" class="view" aria-labelledby="game-title">
+      <div class="game-shell">
+        <div class="game-heading">
+          <button id="leave-room" class="text-button">← Esci</button>
+          <div>
+            <small id="round-label">ROUND 1</small>
+            <h1 id="game-title">Partita in corso</h1>
+          </div>
+          <button id="sound-toggle" class="icon-button" aria-label="Disattiva suoni" title="Suoni">♪</button>
+        </div>
+
+        <div class="players-row">
+          <article id="player-x" class="player-card x-card">
+            <span class="player-symbol">X</span>
+            <div><small>GIOCATORE X</small><strong>In attesa…</strong></div>
+            <b class="score">0</b>
+          </article>
+          <div class="versus">VS</div>
+          <article id="player-o" class="player-card o-card">
+            <span class="player-symbol">O</span>
+            <div><small>GIOCATORE O</small><strong>In attesa…</strong></div>
+            <b class="score">0</b>
+          </article>
+        </div>
+
+        <div id="turn-banner" class="turn-banner"><span></span><strong>In attesa dell’avversario…</strong></div>
+
+        <div id="board" class="board" role="grid" aria-label="Griglia del tris">
+          <button data-cell="0" role="gridcell" aria-label="Casella 1"></button>
+          <button data-cell="1" role="gridcell" aria-label="Casella 2"></button>
+          <button data-cell="2" role="gridcell" aria-label="Casella 3"></button>
+          <button data-cell="3" role="gridcell" aria-label="Casella 4"></button>
+          <button data-cell="4" role="gridcell" aria-label="Casella 5"></button>
+          <button data-cell="5" role="gridcell" aria-label="Casella 6"></button>
+          <button data-cell="6" role="gridcell" aria-label="Casella 7"></button>
+          <button data-cell="7" role="gridcell" aria-label="Casella 8"></button>
+          <button data-cell="8" role="gridcell" aria-label="Casella 9"></button>
+        </div>
+
+        <div id="result-panel" class="result-panel hidden">
+          <span id="result-icon">✦</span>
+          <div><small>PARTITA TERMINATA</small><strong id="result-title"></strong><p id="result-copy"></p></div>
+          <button id="rematch-button" class="primary-button"><span>Rivincita</span><b>↻</b></button>
+        </div>
+
+        <div class="room-strip">
+          <div><small>CODICE STANZA</small><strong id="room-code">—</strong></div>
+          <button id="copy-code">Copia codice <span>▢</span></button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="queue-overlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="queue-title">
+    <div class="queue-card">
+      <div class="loader"><i>X</i><i>O</i></div>
+      <span class="eyebrow">MATCHMAKING</span>
+      <h2 id="queue-title">Cerco un avversario…</h2>
+      <p>Appena un altro giocatore sarà disponibile, la partita inizierà automaticamente.</p>
+      <button id="cancel-queue" class="text-button">Annulla ricerca</button>
     </div>
   </div>
 
-  <div id="panel-scrim" class="panel-scrim hidden"></div>
-  <aside id="inventory-panel" class="game-panel">
-    <button class="panel-close">×</button><p class="eyebrow">LA TUA CASETTA · TAB</p><h2>Inventario</h2>
-    <p class="panel-copy">Click destro per impugnare armi, strumenti e blocchi oppure indossare l’armatura. L’oggetto selezionato apparirà nella mano in prima persona.</p>
-    <div id="equipment-slots" class="equipment-slots"></div>
-    <div id="inventory-grid" class="item-grid"></div>
-    <div id="inventory-actions" class="inventory-actions hidden"></div>
-  </aside>
-  <aside id="craft-panel" class="game-panel">
-    <button class="panel-close">×</button><p class="eyebrow">BANCO DA LAVORO</p><h2>Crafting</h2>
-    <p class="panel-copy">Trasforma le risorse raccolte in strumenti migliori.</p>
-    <div id="recipe-list" class="shop-list"></div>
-  </aside>
-  <aside id="shop-panel" class="game-panel">
-    <button class="panel-close">×</button><p class="eyebrow">EMPORIO DI AURALIS</p><h2>Mercato</h2>
-    <p class="panel-copy">Le creature sconfitte lasciano monete. Spendile con saggezza.</p>
-    <div id="shop-list" class="shop-list"></div>
-  </aside>
-  <aside id="clan-panel" class="game-panel">
-    <button class="panel-close">×</button><p class="eyebrow">GIOCARE INSIEME</p><h2>Clan</h2>
-    <p id="clan-status" class="panel-copy">Crea una compagnia o unisciti a un clan esistente.</p>
-    <form id="clan-create" class="inline-form"><input maxlength="20" placeholder="Nome del nuovo clan"><button class="primary">Crea</button></form>
-    <div id="clan-list" class="clan-list"></div>
-    <button id="leave-clan" class="danger hidden">Lascia il clan</button>
-  </aside>
-  <aside id="exploration-panel" class="game-panel">
-    <button class="panel-close">×</button><p class="eyebrow">DIARIO DEL CARTOGRAFO · P</p><h2>Esplorazione</h2>
-    <p class="panel-copy">Scopri laghi, fiumi, castelli, rovine, santuari e dungeon. Ogni nuova scoperta assegna XP e monete.</p>
-    <div id="landmark-list" class="landmark-list"></div>
-  </aside>
-  <aside id="skills-panel" class="game-panel">
-    <button class="panel-close">×</button><p class="eyebrow">PROGRESSIONE · K</p><h2>Abilità</h2>
-    <p class="panel-copy">Guadagna un punto a ogni nuovo livello e specializza il tuo esploratore.</p>
-    <div class="skill-points">PUNTI DISPONIBILI <b id="skill-points">0</b></div>
-    <div id="skill-list" class="skill-list"></div>
-  </aside>
-  <aside id="settings-panel" class="game-panel">
-    <button class="panel-close">×</button><p class="eyebrow">ESPERIENZA DI GIOCO</p><h2>Impostazioni</h2>
-    <p class="panel-copy">Le preferenze vengono salvate automaticamente su questo browser.</p>
-    <div class="difficulty-note"><span>DIFFICOLTÀ</span><b>Avventura · medio-bassa</b><small>Progressione accessibile, combattimenti preparabili e boss pensati anche per piccoli gruppi.</small></div>
-    <div class="settings-list">
-      <label class="setting-row"><span><b>Campo visivo</b><small>Più ampio mostra una porzione maggiore del mondo.</small></span><output id="fov-output">88°</output><input id="fov-setting" type="range" min="70" max="105" step="1" value="88"></label>
-      <label class="setting-row"><span><b>Sensibilità visuale</b><small>Velocità del movimento della telecamera.</small></span><output id="sensitivity-output">1.0×</output><input id="sensitivity-setting" type="range" min="0.4" max="2" step="0.1" value="1"></label>
-      <label class="setting-row"><span><b>Volume effetti</b><small>Scavo, combattimento, raccolta e interfaccia.</small></span><output id="volume-output">70%</output><input id="volume-setting" type="range" min="0" max="100" step="5" value="70"></label>
-      <label class="setting-select"><span><b>Qualità grafica</b><small>Regola ombre, risoluzione e distanza visiva.</small></span><select id="quality-setting"><option value="low">Prestazioni</option><option value="medium">Bilanciata</option><option value="high" selected>Alta</option></select></label>
-      <label class="setting-toggle"><span><b>Oscillazione visuale</b><small>Movimento naturale mentre cammini e scavi.</small></span><input id="bob-setting" type="checkbox" checked><i></i></label>
-      <label class="setting-toggle"><span><b>Suoni ambientali</b><small>Vento, cielo e atmosfera del mondo.</small></span><input id="ambient-setting" type="checkbox" checked><i></i></label>
-    </div>
-    <button id="reset-settings" class="secondary-button">Ripristina impostazioni consigliate</button>
-  </aside>
-
-  <div id="pause-overlay" class="overlay hidden">
-    <div class="modal small-modal"><p class="eyebrow">TERRANOVALAND</p><h2>Avventura in pausa</h2><p>Clicca per tornare nel mondo.</p><button id="resume-button" class="primary">Riprendi</button></div>
-  </div>
-  <div id="help-overlay" class="overlay hidden">
-    <div class="modal help-modal"><button class="modal-x">×</button><p class="eyebrow">GUIDA RAPIDA</p><h2>Comandi</h2>
-      <div class="controls-grid">
-        <div><kbd>W A S D</kbd><span>Muoviti</span></div><div><kbd>Spazio</kbd><span>Salta / vola in alto</span></div>
-        <div><kbd>Shift</kbd><span>Corri / vola in basso</span></div><div><kbd>Click sx</kbd><span>Scava o attacca</span></div>
-        <div><kbd>Click dx</kbd><span>Posiziona blocco</span></div><div><kbd>E</kbd><span>Cavalca / scendi dal drago</span></div>
-        <div><kbd>F</kbd><span>Mangia il pane</span></div><div><kbd>1 — 9</kbd><span>Barra rapida</span></div>
-        <div><kbd>Rotella</kbd><span>Cambia oggetto in mano</span></div><div><kbd>Tab</kbd><span>Inventario personale</span></div>
-        <div><kbd>T / Invio</kbd><span>Apri la chat</span></div><div><kbd>P / K</kbd><span>Mappa / abilità</span></div>
-        <div><kbd>Q / R</kbd><span>Colpo potente / cura</span></div><div><kbd>G / V</kbd><span>Estrazione 2× / vento</span></div>
-      </div><p class="tip">Suggerimento: crea presto un piccone. I minerali più preziosi si trovano sotto la superficie.</p>
-    </div>
-  </div>
-  <div id="death-overlay" class="overlay hidden"><div class="modal small-modal death"><span>☠</span><h2>Sei caduto</h2><p>Terranovaland offre sempre una seconda possibilità.</p><button id="respawn-button" class="primary">Rinasci alla piazza</button></div></div>
-  <div id="npc-overlay" class="overlay hidden">
-    <div class="modal npc-modal"><button class="modal-x npc-close">×</button><div class="npc-portrait">◆</div><div><p class="eyebrow" id="npc-role">ABITANTE</p><h2 id="npc-name">Abitante</h2><p id="npc-text"></p><div id="npc-quest" class="npc-quest hidden"></div><button id="npc-continue" class="primary">Continua l’avventura</button></div></div>
-  </div>
-  <div id="toasts" aria-live="polite"></div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script type="module" src="/game.js"></script>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="confetti" aria-hidden="true"></div>
 </body>
 </html>

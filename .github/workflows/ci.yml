@@ -1,4 +1,4 @@
-name: Terranovaland CI
+name: Tris Online CI
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Validate game and multiplayer
+      - name: Test rules and multiplayer
         run: npm run check
       - name: Validate production container
-        run: docker build -t terranovaland:ci .
+        run: docker build -t tris-online:ci .

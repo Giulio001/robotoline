@@ -1,16 +1,10 @@
 services:
-  terranovaland:
+  tris-online:
     build: .
-    container_name: terranovaland
+    container_name: tris-online
     restart: unless-stopped
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
     ports:
       - "3000:3000"
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATA_DIR: /app/data
-    volumes:
-      - terranovaland_data:/app/data
-
-volumes:
-  terranovaland_data:

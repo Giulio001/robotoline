@@ -1,978 +1,228 @@
-import * as THREE from 'three';
-import { PointerLockControls } from '/vendor/PointerLockControls.js';
+'use strict';
 
 const socket = window.io({ transports: ['websocket', 'polling'] });
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
-const WORLD_LIMIT = 1_000_000;
-const CHUNK_SIZE = 16;
-const WATER_LEVEL = 6;
-const EYE_HEIGHT = 1.65;
-const DEFAULT_SETTINGS = Object.freeze({ fov: 88, sensitivity: 1, volume: 70, quality: 'high', bob: true, ambient: true });
 
-function loadSettings() {
-  try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem('terranovaland-settings') || '{}') }; }
-  catch { return { ...DEFAULT_SETTINGS }; }
-}
-
-let settings = loadSettings();
-
-const ITEM_INFO = {
-  grass: ['Erba', '#4e9b55', ''], dirt: ['Terra', '#79533a', ''], stone: ['Pietra', '#777d7d', ''], sand: ['Sabbia', '#cfbd78', ''],
-  wood: ['Legno', '#7a5731', ''], leaves: ['Foglie', '#3d7e49', ''], planks: ['Assi', '#a77b49', ''], brick: ['Mattoni', '#9a5547', ''],
-  obsidian: ['Ossidiana', '#35294d', ''], crystal: ['Cristallo', '#38a6c6', '◆'], coal: ['Carbone', '#303436', ''], iron: ['Ferro', '#a9aba5', ''],
-  gold: ['Oro', '#d3a836', ''], redstone: ['Pietrarossa', '#a92f35', ''], redstoneWire: ['Circuito', '#8e252b', '⌁'], lever: ['Leva', '#86715a', '⌇'], lamp: ['Lampada', '#d5a842', '☼'], piston: ['Pistone', '#92816b', '↥'], snow: ['Neve', '#dbe8e8', ''], torch: ['Torcia', '#d88f35', '♨'], bread: ['Pane', '#b97835', '◒'], lootBox: ['Box smarrito', '#b98442', '▣'],
-  woodPickaxe: ['Piccone di legno', '', '⚒'], stonePickaxe: ['Piccone di pietra', '', '⚒'], ironPickaxe: ['Piccone di ferro', '', '⚒'],
-  stoneSword: ['Spada di pietra', '', '⚔'], crystalSword: ['Spada di cristallo', '', '⚔'], guardianBlade: ['Lama del Guardiano', '', '⚔'], dragonTreat: ['Dono per draghi', '', '✦'],
-  healingPotion: ['Pozione curativa', '#b84f8f', '●'], ironHelmet: ['Elmo di ferro', '', '◉'], ironChestplate: ['Corazza di ferro', '', '⬟'], ironBoots: ['Stivali di ferro', '', '⌑'],
-  mapFragment: ['Frammento di mappa', '#d4b46a', '⌁'], guardianCore: ['Nucleo del Guardiano', '#55c4c7', '◆'], voidScale: ['Scaglia del Vuoto', '#563780', '◈'], crownOfTerranova: ['Corona di Terranova', '', '♛'],
-  ancientKey: ['Chiave antica', '#b79a52', '⚿'], frostHelmet: ['Elmo del Gelo', '', '◉'], swiftBoots: ['Stivali del Vento', '', '⌑'], voidChestplate: ['Corazza del Vuoto', '', '⬟']
-};
-const ITEM_RARITY = { healingPotion:'uncommon',gold:'uncommon',crystal:'rare',ancientKey:'rare',swiftBoots:'rare',guardianCore:'epic',frostHelmet:'epic',guardianBlade:'legendary',voidScale:'legendary',voidChestplate:'legendary',crownOfTerranova:'legendary' };
-const RARITY_LABEL = { common:'Comune',uncommon:'Non comune',rare:'Raro',epic:'Epico',legendary:'Leggendario' };
-const BIOME_INFO = { meadow:['Praterie di Terranova','#4b8050'],forest:['Foresta Antica','#276343'],desert:['Deserto Dorato','#c6aa62'],swamp:['Paludi di Smeraldo','#476e52'],frost:['Distese del Gelo','#d6e7e8'],volcanic:['Terre delle Braci','#4a3741'] };
-const PLACEABLE = new Set(['grass', 'dirt', 'stone', 'sand', 'wood', 'leaves', 'planks', 'brick', 'obsidian', 'crystal', 'coal', 'iron', 'gold', 'redstone', 'redstoneWire', 'lever', 'lamp', 'piston', 'snow', 'torch']);
-const MOB_LABELS = { slime: 'Melma delle radici', boar: 'Cinghiale roccioso', golem: 'Golem antico', wraith: 'Spettro del crepuscolo', skySentinel:'Sentinella Celeste', ancientGuardian: 'Guardiano Antico', voidDragon: 'Drago del Vuoto' };
-
-let scene, camera, renderer, controls, clock, sun, hemiLight, stars, skyDome, sunDisc, moonDisc;
-let worldGroup, entityGroup, dragonGroup, selectionBox, crackBox, viewModel;
-let worldReady = false;
-let gameStarted = false;
-let panelOpen = false;
-let dead = false;
-let profile = null;
-let recipes = {};
-let shop = {};
-let clans = [];
-let landmarks = [];
-let self = null;
-let spawn = null;
-let worldDay = 0.25;
-let overrides = {};
-let circuitPower = {};
-let blockMeshes = [];
-let currentTarget = null;
-let nearbyDragon = null;
-let mountedDragon = null;
-let selectedSlot = 0;
-let hotbarItems = ['woodPickaxe', 'grass', 'dirt', 'wood', 'stone', 'bread', null, null, null];
-let rebuildTimer = null;
-let pendingWorldRefresh = false;
-let pendingForceRefresh = false;
-const pendingDirtyChunks = new Set();
-let renderedChunkX = null;
-let renderedChunkZ = null;
-const loadedChunks = new Map();
-const queuedChunks = new Set();
-const buildingChunks = new Set();
-let chunkQueue = [];
-let chunkPumpTimer = null;
-let chunkPumpBusy = false;
-let chunkWorker = null;
-let chunkWorkerReady = Promise.resolve(false);
-let chunkWorkerReadyResolve = null;
-let chunkRequestId = 0;
-const chunkRequests = new Map();
-const chunkBuildVersions = new Map();
-const sharedBlockGeometries = new Map();
-let lastMoveSent = 0;
-let lastAction = 0;
-let miningAction = null;
-let viewModelSwing = 0;
+let playerName = '';
+let roomState = null;
+let queued = false;
+let soundEnabled = localStorage.getItem('tris-sound') !== 'off';
 let audioContext = null;
-let masterGain = null;
-let ambientTimer = null;
-let lastMinimapUpdate = 0;
-let hasteUntil = 0;
-const clouds = [];
+let rematchRequested = false;
+let reconnecting = false;
 
-const remotePlayers = new Map();
-const mobs = new Map();
-const dragons = new Map();
-const lootBoxes = new Map();
-const itemDrops = new Map();
-const npcs = new Map();
-const chests = new Map();
-const keys = new Set();
-const velocity = new THREE.Vector3();
-const moveDirection = new THREE.Vector3();
-const forward = new THREE.Vector3();
-const right = new THREE.Vector3();
-const raycaster = new THREE.Raycaster();
-raycaster.far = 6;
-const chunkFeatureCache = new Map();
-const generatedChunkCache = new Map();
-
-function fract(value) { return value - Math.floor(value); }
-function terrainHeight(x, z) {
-  const broad = Math.sin(x * 0.13) * 2.1 + Math.cos(z * 0.11) * 1.8;
-  const detail = (fract(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) - 0.5) * 1.6;
-  const spawnPlateau = Math.max(0, 1 - Math.hypot(x, z) / 8);
-  let height = Math.max(3, Math.min(15, Math.floor(7 + broad + detail + spawnPlateau * 2)));
-  const river = Math.abs(x - (16 + Math.sin(z * .12) * 5));
-  const tributary = Math.abs(z - (-20 + Math.cos(x * .1) * 4));
-  if (river < 2.4) height = Math.min(height, 4 + Math.floor(river * .55));
-  if (tributary < 1.8 && x > 4) height = Math.min(height, 4 + Math.floor(tributary * .65));
-  const lakeDistance = Math.hypot(x + 13, z - 18);
-  if (lakeDistance < 6.5) height = Math.min(height, 4 + Math.floor(lakeDistance / 4));
-  return height;
-}
-function biomeAt(x,z){if(Math.hypot(x,z)<12)return'meadow';const temperature=Math.sin(x*.018)*.55+Math.cos(z*.014)*.45,moisture=Math.cos(x*.013+z*.019)*.6+Math.sin(z*.026)*.4,volcanic=fract(Math.sin(Math.floor(x/36)*91.7+Math.floor(z/36)*47.3)*43758.5453);if(volcanic>.91&&Math.hypot(x,z)>35)return'volcanic';if(temperature<-.45)return'frost';if(temperature>.48&&moisture<-.08)return'desert';if(moisture>.48&&temperature>-.15)return'swamp';if(moisture>.02)return'forest';return'meadow'}
-function worldHash(x, y, z = 0) { return fract(Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453123); }
-function keyOf(x, y, z) { return `${x},${y},${z}`; }
-
-function isTreeOrigin(x, z) {
-  const h = terrainHeight(x, z);
-  const biome=biomeAt(x,z),threshold=biome==='forest'?.935:biome==='swamp'?.95:biome==='meadow'?.975:1;
-  return Math.hypot(x, z) > 7 && h > WATER_LEVEL && h < 12 && worldHash(x, z, 19) > threshold;
+function showView(id) {
+  $$('.view').forEach(view => view.classList.toggle('active', view.id === id));
 }
 
-function chunkFeature(chunkX, chunkZ) {
-  const cacheKey=`${chunkX},${chunkZ}`;if(chunkFeatureCache.has(cacheKey))return chunkFeatureCache.get(cacheKey);
-  if (chunkX === 0 && chunkZ === 0) return null;
-  let type = null;
-  if (chunkX === 1 && chunkZ === 1) type = 'castle';
-  else if (chunkX === -2 && chunkZ === -2) type = 'dungeon';
-  else if (chunkX === 4 && chunkZ === 2) type = 'dungeon';
-  else if (chunkX === -5 && chunkZ === -3) type = 'dungeon';
-  else if ((chunkX === 6 && chunkZ === 4) || (chunkX === -7 && chunkZ === 5)) type = 'skyDungeon';
-  else if (chunkX === -3 && chunkZ === 0) type = 'ruin';
-  else if (chunkX === -4 && chunkZ === 2) type = 'shrine';
-  else if (chunkX === 3 && chunkZ === -4) type = 'tower';
-  else {
-    const chance = worldHash(chunkX, chunkZ, 77);
-    if (chance < .7){chunkFeatureCache.set(cacheKey,null);return null}
-    type = chance > .91 ? 'tower' : chance > .81 ? 'ruin' : 'shrine';
-  }
-  const forcedCenter=chunkX===1&&chunkZ===1?{x:24,z:24}:chunkX===-2&&chunkZ===-2?{x:-24,z:-24}:chunkX===4&&chunkZ===2?{x:72,z:40}:chunkX===-5&&chunkZ===-3?{x:-72,z:-40}:chunkX===6&&chunkZ===4?{x:104,z:72}:chunkX===-7&&chunkZ===5?{x:-104,z:88}:null;
-  const x = forcedCenter?.x ?? chunkX * 16 + 8 + Math.floor((worldHash(chunkX, 11, chunkZ) - .5) * 4);
-  const z = forcedCenter?.z ?? chunkZ * 16 + 8 + Math.floor((worldHash(chunkZ, 29, chunkX) - .5) * 4);
-  const feature={ type, x, z, base:type==='skyDungeon'?22:terrainHeight(x, z) };chunkFeatureCache.set(cacheKey,feature);return feature;
+function toast(message) {
+  const element = document.createElement('div');
+  element.className = 'toast';
+  element.textContent = message;
+  $('#toasts').appendChild(element);
+  setTimeout(() => element.remove(), 3600);
 }
-
-function structurePart(feature, x, y, z) {
-  const dx=x-feature.x,dz=z-feature.z,ax=Math.abs(dx),az=Math.abs(dz),base=feature.base;
-  if(feature.type==='castle'&&ax<=7&&az<=7&&y>=base&&y<=base+9){
-    if(y===base)return{handled:true,type:'brick'};
-    const gate=dz===-7&&ax<=1&&y<=base+3;
-    if(gate)return{handled:true,type:null};
-    const tower=ax>=5&&az>=5;
-    if(tower&&(ax===7||ax===5||az===7||az===5)&&y<=base+8)return{handled:true,type:y===base+8?'gold':'brick'};
-    const wall=(ax===7||az===7)&&y<=base+5;
-    if(wall)return{handled:true,type:'brick'};
-    if(y===base+6&&(ax===7||az===7)&&(Math.abs(dx+dz)%2===0))return{handled:true,type:'stone'};
-    if(y===base+1&&((dx===0&&az<=4)||(dz===0&&ax<=4)))return{handled:true,type:'planks'};
-    return{handled:true,type:null};
-  }
-  if(feature.type==='dungeon'&&ax<=6&&az<=6&&y>=base-5&&y<=base+4){
-    if(y===base-5)return{handled:true,type:'obsidian'};
-    if(y<base){
-      if(ax===6||az===6)return{handled:true,type:'brick'};
-      const depth=base-y;if(dx===2&&dz===2-depth)return{handled:true,type:'stone'};
-      if(dx===0&&dz===0&&y===base-4)return{handled:true,type:'crystal'};
-      return{handled:true,type:null};
-    }
-    if(y===base)return{handled:true,type:(ax===6||az===6)?'obsidian':null};
-    const gate=dz===-6&&ax<=1&&y<=base+2;
-    if(gate)return{handled:true,type:null};
-    if((ax===6||az===6)&&y<=base+3)return{handled:true,type:(dx+dz+y)%3===0?'obsidian':'brick'};
-    return{handled:true,type:null};
-  }
-  if(feature.type==='tower'&&ax<=3&&az<=3&&y>=base&&y<=base+8){
-    if(y===base)return{handled:true,type:'stone'};
-    if(dz===-3&&dx===0&&y<=base+2)return{handled:true,type:null};
-    if((ax===3||az===3)&&y<=base+7)return{handled:true,type:y===base+7?'gold':'brick'};
-    if(y===base+8&&(ax===3||az===3)&&(Math.abs(dx+dz)%2===0))return{handled:true,type:'stone'};
-    return{handled:true,type:null};
-  }
-  if(feature.type==='ruin'&&ax<=5&&az<=5&&y>=base&&y<=base+4){
-    if(y===base&&((ax<=1&&az<=1)||ax===5||az===5))return{handled:true,type:'stone'};
-    if((ax===5||az===5)&&y<=base+1+Math.floor(worldHash(x,z,6)*3)&&!(dz===-5&&ax<2))return{handled:true,type:'brick'};
-    if((dx===-3&&dz===-3||dx===3&&dz===3)&&y<=base+4)return{handled:true,type:'obsidian'};
-    return{handled:true,type:null};
-  }
-  if(feature.type==='shrine'&&ax<=4&&az<=4&&y>=base&&y<=base+6){
-    if(y===base&&ax<=3&&az<=3)return{handled:true,type:'snow'};
-    if((ax===3&&az===3)&&y<=base+5)return{handled:true,type:'crystal'};
-    if(dx===0&&dz===0&&y===base+1)return{handled:true,type:'gold'};
-    return{handled:true,type:null};
-  }
-  if(feature.type==='skyDungeon'&&ax<=8&&az<=8&&y>=base-2&&y<=base+7){
-    if(y===base-2){if(ax<=5&&az<=5)return{handled:true,type:'obsidian'};if((ax<=8&&az<=2)||(az<=8&&ax<=2))return{handled:true,type:'stone'};return{handled:true,type:null}}
-    if(y===base-1&&ax<=6&&az<=6)return{handled:true,type:ax===6||az===6?'brick':null};
-    const gate=dz===-6&&ax<=1&&y<=base+2;if(gate)return{handled:true,type:null};
-    if((ax===6||az===6)&&y<=base+4)return{handled:true,type:(x+z+y)%4===0?'crystal':'brick'};
-    if((ax===3&&az===3)&&y<=base+6)return{handled:true,type:y===base+6?'gold':'obsidian'};
-    if(y===base+5&&(ax===6||az===6)&&(Math.abs(dx+dz)%2===0))return{handled:true,type:'lamp'};
-    return{handled:true,type:null};
-  }
-  return{handled:false,type:null};
-}
-
-function structureBlock(x,y,z){
-  const chunkX=Math.floor(x/16),chunkZ=Math.floor(z/16);
-  for(let cx=chunkX-1;cx<=chunkX+1;cx++)for(let cz=chunkZ-1;cz<=chunkZ+1;cz++){
-    const feature=chunkFeature(cx,cz);if(!feature)continue;const part=structurePart(feature,x,y,z);if(part.handled)return part;
-  }
-  return{handled:false,type:null};
-}
-
-function generatedBlock(x, y, z) {
-  if (Math.abs(x) > WORLD_LIMIT || Math.abs(z) > WORLD_LIMIT || y < 0 || y > 32) return null;
-  const structure=structureBlock(x,y,z);if(structure.handled)return structure.type;
-  const height = terrainHeight(x, z);
-  const biome=biomeAt(x,z);
-  if (y <= height) {
-    if (y === 0) return 'obsidian';
-    if (y === height) return height <= WATER_LEVEL?'sand':biome==='frost'?'snow':biome==='desert'?'sand':biome==='volcanic'?'obsidian':'grass';
-    if (height - y <= 2) return biome==='desert'||height<=WATER_LEVEL?'sand':biome==='volcanic'?'stone':'dirt';
-    const ore = worldHash(x, y, z);
-    if (y < 5 && ore > 0.972) return 'crystal';
-    if (y < 7 && ore > 0.95) return 'gold';
-    if (y < 9 && ore > 0.925) return 'iron';
-    if (y < 10 && ore > 0.895) return 'redstone';
-    if (ore > 0.88) return 'coal';
-    return 'stone';
-  }
-  if (y <= WATER_LEVEL) return 'water';
-
-  for (let tx = x - 2; tx <= x + 2; tx++) {
-    for (let tz = z - 2; tz <= z + 2; tz++) {
-      if (!isTreeOrigin(tx, tz)) continue;
-      const th = terrainHeight(tx, tz);
-      if (x === tx && z === tz && y >= th + 1 && y <= th + 4) return 'wood';
-      const dy = y - (th + 4);
-      const canopy = Math.abs(x - tx) + Math.abs(z - tz) + Math.abs(dy) * 1.25;
-      if (dy >= -1 && dy <= 2 && canopy <= 3.7) return 'leaves';
-    }
-  }
-  return null;
-}
-
-function getBlock(x, y, z) {
-  const override = overrides[keyOf(x, y, z)];
-  if (override === 0) return null;
-  if(override)return override;const cacheKey=chunkKey(Math.floor(x/CHUNK_SIZE),Math.floor(z/CHUNK_SIZE));let cache=generatedChunkCache.get(cacheKey);if(!cache){cache=new Map();generatedChunkCache.set(cacheKey,cache)}const localKey=`${x},${y},${z}`;if(cache.has(localKey))return cache.get(localKey);const generated=generatedBlock(x,y,z);cache.set(localKey,generated);return generated;
-}
-
-function isSolid(type) { return Boolean(type && !['water', 'torch', 'redstoneWire', 'lever'].includes(type)); }
-
-function texture(colors, spots = 35) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 32;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = colors[0]; ctx.fillRect(0, 0, 32, 32);
-  for (let i = 0; i < spots; i++) {
-    ctx.fillStyle = colors[1 + (i % (colors.length - 1))];
-    const size = 1 + (i % 3);
-    ctx.fillRect(Math.floor(worldHash(i, spots) * 31), Math.floor(worldHash(spots, i) * 31), size, size);
-  }
-  const result = new THREE.CanvasTexture(canvas);
-  result.colorSpace = THREE.SRGBColorSpace;
-  result.magFilter = THREE.NearestFilter;
-  result.minFilter = THREE.NearestMipmapLinearFilter;
-  return result;
-}
-
-function buildMaterials() {
-  const palettes = {
-    grass: ['#4e8f48', '#3f7c3e', '#67a85b'], dirt: ['#765238', '#65432f', '#916342'], stone: ['#777c7c', '#676c6c', '#929797'],
-    sand: ['#cbbc79', '#b7a968', '#dfcf8d'], wood: ['#75502d', '#59391e', '#96673a'], leaves: ['#3d7d49', '#2e663a', '#54945c'],
-    planks: ['#a97b48', '#8e6338', '#c08d56'], brick: ['#965346', '#7d4138', '#b66b58'], obsidian: ['#302846', '#211c36', '#4a3c66'],
-    crystal: ['#36a4c4', '#25778f', '#6ee0ea'], coal: ['#343839', '#242829', '#4a4e4f'], iron: ['#a5aaa5', '#868c88', '#c3c7c0'],
-    gold: ['#d1a632', '#a9801f', '#f1ce55'], redstone: ['#9e2b31', '#6f1c22', '#d64b4f'], redstoneWire: ['#6e2026', '#4b151a', '#8e2e34'], redstoneWireOn: ['#ef4148', '#b7242b', '#ff7774'],
-    lever: ['#786750', '#5e503e', '#a08b6d'], leverOn: ['#be8a45', '#7c5b31', '#e5b968'], lamp: ['#746d4f', '#554f39', '#918762'], lampOn: ['#e6b94e', '#bd842b', '#ffe692'], piston: ['#867661', '#5f5548', '#a9997e'], pistonOn: ['#a89168', '#766040', '#d6bd86'],
-    snow: ['#d9e7e8', '#c1d6d8', '#effafa'], torch: ['#db8a2c', '#83471d', '#ffc95c']
-  };
-  const materials = {};
-  for (const [name, palette] of Object.entries(palettes)) {
-    materials[name] = new THREE.MeshLambertMaterial({ map: texture(palette), transparent: name === 'leaves', opacity: name === 'leaves' ? 0.92 : 1, alphaTest: name === 'leaves' ? 0.15 : 0 });
-  }
-  for(const name of ['redstoneWireOn','lampOn'])materials[name]=new THREE.MeshStandardMaterial({map:texture(palettes[name]),color:0xffffff,emissive:name==='lampOn'?0xd79b29:0xa71920,emissiveIntensity:name==='lampOn'?1.8:1.2,roughness:.45});
-  materials.water = new THREE.ShaderMaterial({
-    transparent:true,depthWrite:false,side:THREE.DoubleSide,uniforms:{uTime:{value:0},uDeep:{value:new THREE.Color(0x15556f)},uShallow:{value:new THREE.Color(0x58c4d0)}},
-    vertexShader:`uniform float uTime; varying vec3 vWorld; varying float vWave;
-      void main(){ vec3 p=position; vec4 world=modelMatrix*vec4(p,1.0);
-      #ifdef USE_INSTANCING
-        world=modelMatrix*instanceMatrix*vec4(p,1.0);
-      #endif
-      float wave=sin((world.x+world.z)*2.4+uTime*1.35)*.035+sin(world.x*4.1-world.z*2.2+uTime*1.9)*.018; world.y+=wave; vWorld=world.xyz; vWave=wave; gl_Position=projectionMatrix*viewMatrix*world; }`,
-    fragmentShader:'uniform float uTime; uniform vec3 uDeep; uniform vec3 uShallow; varying vec3 vWorld; varying float vWave; void main(){ float ripples=sin(vWorld.x*2.8+uTime*1.7)*sin(vWorld.z*2.1-uTime*1.25); float shimmer=smoothstep(.72,1.0,ripples)*.28; float distanceFade=clamp(length(cameraPosition-vWorld)/90.0,0.0,1.0); vec3 color=mix(uShallow,uDeep,.3+distanceFade*.45)+vec3(shimmer); float alpha=.66+vWave*1.8+shimmer*.12; gl_FragColor=vec4(color,alpha); }'
-  });
-  return materials;
-}
-
-let blockMaterials;
-
-function saveSettings() { localStorage.setItem('terranovaland-settings', JSON.stringify(settings)); }
 
 function ensureAudio() {
-  if (!audioContext) {
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    masterGain = audioContext.createGain();
-    masterGain.connect(audioContext.destination);
-  }
+  if (!soundEnabled) return null;
+  if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
   if (audioContext.state === 'suspended') audioContext.resume();
-  if (masterGain) masterGain.gain.value = settings.volume / 100;
-  if (settings.ambient && !ambientTimer) ambientTimer = setInterval(() => sound('wind'), 5200);
+  return audioContext;
 }
 
-function tone(frequency, duration, volume = .08, type = 'sine', endFrequency = frequency) {
-  if (!audioContext || !masterGain || settings.volume <= 0) return;
-  const oscillator = audioContext.createOscillator();
-  const gain = audioContext.createGain();
+function tone(frequency, duration = .12, type = 'sine', volume = .045, delay = 0) {
+  const context = ensureAudio();
+  if (!context) return;
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  const start = context.currentTime + delay;
   oscillator.type = type;
-  oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
-  oscillator.frequency.exponentialRampToValueAtTime(Math.max(20, endFrequency), audioContext.currentTime + duration);
-  gain.gain.setValueAtTime(volume, audioContext.currentTime);
-  gain.gain.exponentialRampToValueAtTime(.0001, audioContext.currentTime + duration);
-  oscillator.connect(gain); gain.connect(masterGain); oscillator.start(); oscillator.stop(audioContext.currentTime + duration);
+  oscillator.frequency.setValueAtTime(frequency, start);
+  gain.gain.setValueAtTime(volume, start);
+  gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
+  oscillator.connect(gain); gain.connect(context.destination); oscillator.start(start); oscillator.stop(start + duration);
 }
 
-function noise(duration = .12, volume = .04) {
-  if (!audioContext || !masterGain || settings.volume <= 0) return;
-  const length = Math.floor(audioContext.sampleRate * duration);
-  const buffer = audioContext.createBuffer(1, length, audioContext.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / length);
-  const source = audioContext.createBufferSource(); const gain = audioContext.createGain();
-  source.buffer = buffer; gain.gain.value = volume; source.connect(gain); gain.connect(masterGain); source.start();
+function playSound(name) {
+  if (name === 'moveX') tone(245, .1, 'triangle');
+  if (name === 'moveO') tone(410, .12, 'sine');
+  if (name === 'start') { tone(360, .1); tone(520, .13, 'sine', .04, .1); }
+  if (name === 'win') [523, 659, 784, 1047].forEach((value, index) => tone(value, .22, 'sine', .045, index * .085));
+  if (name === 'draw') { tone(310, .14); tone(270, .18, 'triangle', .04, .12); }
+  if (name === 'error') tone(125, .15, 'sawtooth', .035);
+  if (name === 'click') tone(480, .06, 'sine', .025);
 }
 
-function sound(name) {
-  if (!audioContext || settings.volume <= 0) return;
-  if (name === 'mine') { noise(.15, .08); tone(135, .13, .045, 'square', 72); }
-  else if (name === 'break') { noise(.22, .1); tone(92, .18, .045, 'triangle', 45); }
-  else if (name === 'place') tone(165, .1, .055, 'square', 115);
-  else if (name === 'attack') tone(260, .13, .06, 'sawtooth', 75);
-  else if (name === 'hurt') { noise(.18, .06); tone(105, .2, .06, 'sawtooth', 55); }
-  else if (name === 'coin') { tone(720, .11, .05, 'sine', 900); setTimeout(() => tone(1040, .14, .045), 90); }
-  else if (name === 'quest') { [440, 660, 880].forEach((frequency, index) => setTimeout(() => tone(frequency, .22, .04), index * 110)); }
-  else if (name === 'dragon') { tone(78, .55, .05, 'sawtooth', 42); noise(.4, .025); }
-  else if (name === 'ui') tone(420, .06, .025, 'sine', 520);
-  else if (name === 'wind' && settings.ambient) noise(.9, .006);
-}
-
-function applySettings(save = true) {
-  if (camera) { camera.fov = Number(settings.fov); camera.far = settings.quality === 'low' ? 180 : settings.quality === 'medium' ? 260 : 340; camera.updateProjectionMatrix(); }
-  if (controls) controls.pointerSpeed = Number(settings.sensitivity);
-  if (renderer) {
-    const ratio = settings.quality === 'low' ? 1 : settings.quality === 'medium' ? Math.min(devicePixelRatio, 1.35) : Math.min(devicePixelRatio, 1.8);
-    renderer.setPixelRatio(ratio); renderer.shadowMap.enabled = settings.quality !== 'low'; renderer.setSize(innerWidth, innerHeight);
+function confetti() {
+  const host = $('#confetti');
+  const colors = ['#ff5d73', '#55d6be', '#8b7cf6', '#ffdb7a', '#f7f8fb'];
+  for (let index = 0; index < 70; index += 1) {
+    const piece = document.createElement('i');
+    piece.className = 'confetti-piece';
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.background = colors[index % colors.length];
+    piece.style.setProperty('--duration', `${2.2 + Math.random() * 1.8}s`);
+    piece.style.setProperty('--drift', `${(Math.random() - .5) * 260}px`);
+    piece.style.animationDelay = `${Math.random() * .4}s`;
+    host.appendChild(piece);
+    setTimeout(() => piece.remove(), 4400);
   }
-  if (scene?.fog) scene.fog.density = settings.quality === 'low' ? .018 : settings.quality === 'medium' ? .012 : .0085;
-  if (masterGain) masterGain.gain.value = settings.volume / 100;
-  if (!settings.ambient && ambientTimer) { clearInterval(ambientTimer); ambientTimer = null; }
-  if (settings.ambient && audioContext && !ambientTimer) ambientTimer = setInterval(() => sound('wind'), 5200);
-  $('#fov-setting').value = settings.fov; $('#fov-output').textContent = `${settings.fov}°`;
-  $('#sensitivity-setting').value = settings.sensitivity; $('#sensitivity-output').textContent = `${Number(settings.sensitivity).toFixed(1)}×`;
-  $('#volume-setting').value = settings.volume; $('#volume-output').textContent = `${settings.volume}%`;
-  $('#quality-setting').value = settings.quality; $('#bob-setting').checked = settings.bob; $('#ambient-setting').checked = settings.ambient;
-  if(worldReady)scheduleWorldRebuild();
-  if (save) saveSettings();
 }
 
-function createViewModel() {
-  viewModel = new THREE.Group();
-  viewModel.position.set(.56, -.48, -.82); viewModel.rotation.set(-.18, -.28, -.08); viewModel.scale.setScalar(.72);
-  camera.add(viewModel); updateHeldViewModel();
+function renderPlayer(symbol) {
+  const element = $(`#player-${symbol.toLowerCase()}`);
+  const player = roomState?.players.find(item => item.symbol === symbol);
+  element.querySelector('strong').textContent = player?.name || 'In attesa…';
+  element.querySelector('.score').textContent = player?.score ?? 0;
+  element.classList.toggle('active', roomState?.status === 'playing' && roomState.turn === symbol);
 }
 
-function viewMaterial(color, emissive = 0) { return new THREE.MeshStandardMaterial({ color, emissive, roughness: .75, depthTest: false, depthWrite: false }); }
-
-function updateHeldViewModel() {
-  if (!viewModel) return;
-  while (viewModel.children.length) { const child = viewModel.children.pop(); child.geometry?.dispose(); child.material?.dispose(); }
-  const hand = box(.23, .42, .23, viewMaterial(0xd7a579)); hand.position.set(.13, -.1, .02); hand.rotation.z = -.18; hand.renderOrder = 100; viewModel.add(hand);
-  const item = selectedItem();
-  if (!item) return;
-  if (item.includes('Pickaxe')) {
-    const handle = box(.09, .72, .09, viewMaterial(item === 'ironPickaxe' ? 0x7c5a35 : 0x79512e)); handle.position.y = .35; handle.rotation.z = -.28;
-    const head = box(.65, .12, .14, viewMaterial(item === 'woodPickaxe' ? 0x986d3e : item === 'stonePickaxe' ? 0x737b7b : 0xb5c0bd)); head.position.set(-.09, .66, 0); head.rotation.z = -.12; viewModel.add(handle, head);
-  } else if (item.includes('Sword') || item === 'guardianBlade') {
-    const guardian=item==='guardianBlade';const grip = box(.1, .45, .1, viewMaterial(guardian?0x3e2a51:0x76512d)); grip.position.y=.22; const blade=box(.13,.8,.07,viewMaterial(guardian?0x71f0da:item==='crystalSword'?0x59d5ec:0xaeb5b2,guardian?0x1b665c:item==='crystalSword'?0x174b58:0));blade.position.y=.78;viewModel.add(grip,blade);
-  } else if(item==='torch'){
-    const shaft=box(.1,.6,.1,viewMaterial(0x76502b));shaft.position.y=.28;const flame=new THREE.Mesh(new THREE.SphereGeometry(.14,10,7),viewMaterial(0xffa32f,0xd85d12));flame.position.y=.65;viewModel.add(shaft,flame);
-  } else if(item==='healingPotion'){
-    const bottle=new THREE.Mesh(new THREE.CylinderGeometry(.16,.22,.48,10),new THREE.MeshStandardMaterial({color:0xb84f8f,emissive:0x351128,transparent:true,opacity:.88,depthTest:false,depthWrite:false}));bottle.position.y=.3;const cork=box(.12,.12,.12,viewMaterial(0x8c6335));cork.position.y=.6;viewModel.add(bottle,cork);
-  } else if(item==='ancientKey'){
-    const metal=viewMaterial(0xd3b45f,0x3a2608),stem=box(.08,.58,.08,metal);stem.position.y=.32;const ring=new THREE.Mesh(new THREE.TorusGeometry(.18,.05,8,14),metal);ring.position.y=.66;const tooth=box(.24,.08,.08,metal);tooth.position.set(.08,.05,0);viewModel.add(stem,ring,tooth);
-  } else if(PLACEABLE.has(item)){
-    const source=blockMaterials?.[item],material=new THREE.MeshStandardMaterial({map:source?.map||null,color:source?.map?0xffffff:ITEM_INFO[item]?.[1]||'#777',roughness:.8,depthTest:false,depthWrite:false});const held=box(.42,.42,.42,material);held.position.y=.32;held.rotation.set(.2,.25,.1);viewModel.add(held);
-  } else {
-    const color = ITEM_INFO[item]?.[1] || '#b97835'; const held = box(.38, .38, .38, viewMaterial(color)); held.position.y = .32; held.rotation.set(.2,.25,.1); viewModel.add(held);
-  }
-  viewModel.traverse(child => { if (child.isMesh) child.renderOrder = 100; });
-}
-
-function initThree() {
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x84b8cc);
-  scene.fog = new THREE.FogExp2(0x92bdc7, 0.0085);
-  camera = new THREE.PerspectiveCamera(settings.fov, innerWidth / innerHeight, 0.05, 340);
-  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
-  $('#game').appendChild(renderer.domElement);
-
-  controls = new PointerLockControls(camera, renderer.domElement);
-  controls.pointerSpeed = settings.sensitivity;
-  camera.position.set(spawn.x, spawn.y, spawn.z);
-  scene.add(camera);
-  clock = new THREE.Clock();
-  worldGroup = new THREE.Group(); entityGroup = new THREE.Group(); dragonGroup = new THREE.Group();
-  scene.add(worldGroup, entityGroup, dragonGroup);
-  blockMaterials = buildMaterials();
-  initChunkWorker();
-
-  hemiLight = new THREE.HemisphereLight(0xbde4f3, 0x314128, 1.5);
-  scene.add(hemiLight);
-  sun = new THREE.DirectionalLight(0xffe4b0, 2.4);
-  sun.position.set(30, 45, 18); sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left = sun.shadow.camera.bottom = -45; sun.shadow.camera.right = sun.shadow.camera.top = 45;
-  scene.add(sun);
-  createAtmosphere();
-  createViewModel();
-
-  selectionBox = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.03, 1.03, 1.03)), new THREE.LineBasicMaterial({ color: 0xffd36c, transparent: true, opacity: 0.9 }));
-  selectionBox.visible = false; scene.add(selectionBox);
-  crackBox = new THREE.Mesh(new THREE.BoxGeometry(1.018, 1.018, 1.018), new THREE.MeshBasicMaterial({ color: 0x21180e, wireframe: true, transparent: true, opacity: 0, depthTest: true }));
-  crackBox.visible = false; scene.add(crackBox);
-  applySettings(false);
-
-  controls.addEventListener('lock', () => $('#pause-overlay').classList.add('hidden'));
-  controls.addEventListener('unlock', () => {
-    if (gameStarted && !panelOpen && !dead && !$('#help-overlay').classList.contains('hidden')) return;
-    if (gameStarted && !panelOpen && !dead) $('#pause-overlay').classList.remove('hidden');
+function renderBoard() {
+  if (!roomState) return;
+  const playable = roomState.status === 'playing' && roomState.turn === roomState.ownSymbol;
+  $$('#board [data-cell]').forEach((cell, index) => {
+    const mark = roomState.board[index];
+    cell.textContent = mark || '';
+    cell.className = mark ? mark.toLowerCase() : '';
+    cell.classList.toggle('winner', roomState.winningLine.includes(index));
+    cell.disabled = !playable || Boolean(mark);
+    cell.setAttribute('aria-label', mark ? `Casella ${index + 1}: ${mark}` : `Casella ${index + 1}: vuota`);
   });
-  renderer.domElement.addEventListener('mousedown', onMouseAction);
-  renderer.domElement.addEventListener('contextmenu', event => event.preventDefault());
-  addEventListener('resize', onResize);
 }
 
-function createAtmosphere() {
-  const skyMaterial = new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: { topColor: { value: new THREE.Color(0x3c91bf) }, bottomColor: { value: new THREE.Color(0xd8e7d5) }, nightMix: { value: 0 } },
-    vertexShader: 'varying vec3 vPosition; void main(){ vPosition=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
-    fragmentShader: 'uniform vec3 topColor; uniform vec3 bottomColor; uniform float nightMix; varying vec3 vPosition; void main(){ float h=clamp(normalize(vPosition).y*.72+.28,0.0,1.0); vec3 day=mix(bottomColor,topColor,pow(h,.72)); vec3 night=mix(vec3(.025,.045,.11),vec3(.015,.025,.07),h); gl_FragColor=vec4(mix(day,night,nightMix),1.0); }'
-  });
-  skyDome = new THREE.Mesh(new THREE.SphereGeometry(170, 32, 18), skyMaterial); skyDome.frustumCulled = false; skyDome.renderOrder = -1000; scene.add(skyDome);
-  sunDisc = new THREE.Mesh(new THREE.SphereGeometry(4.2, 20, 12), new THREE.MeshBasicMaterial({ color: 0xffe3a1, fog: false }));
-  moonDisc = new THREE.Mesh(new THREE.SphereGeometry(2.8, 18, 12), new THREE.MeshBasicMaterial({ color: 0xdde8ff, fog: false }));
-  scene.add(sunDisc, moonDisc);
-  const starGeometry = new THREE.BufferGeometry();
-  const points = [];
-  for (let i = 0; i < 700; i++) {
-    const radius = 85 + Math.random() * 70, theta = Math.random() * Math.PI * 2, phi = Math.random() * Math.PI * 0.48;
-    points.push(Math.cos(theta) * Math.sin(phi) * radius, Math.cos(phi) * radius, Math.sin(theta) * Math.sin(phi) * radius);
+function renderStatus() {
+  const banner = $('#turn-banner');
+  banner.className = 'turn-banner';
+  if (roomState.status === 'waiting') {
+    banner.querySelector('strong').textContent = 'In attesa dell’avversario…';
+    return;
   }
-  starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-  stars = new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xddeeff, size: 0.55, transparent: true, opacity: 0 }));
-  scene.add(stars);
-  const cloudMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.42, depthWrite: false });
-  for (let i = 0; i < 18; i++) {
-    const cloud = new THREE.Group();
-    for (let j = 0; j < 3 + i % 3; j++) {
-      const puff = new THREE.Mesh(new THREE.BoxGeometry(4 + j, 0.7 + (j % 2) * 0.4, 2.3), cloudMaterial);
-      puff.position.set(j * 2.7, Math.sin(j) * 0.4, j % 2); cloud.add(puff);
-    }
-    cloud.position.set((Math.random() - .5) * 120, 23 + Math.random() * 11, (Math.random() - .5) * 120); cloud.userData.speed = .35 + Math.random() * .35;
-    clouds.push(cloud); scene.add(cloud);
+  if (roomState.status === 'playing') {
+    banner.classList.add(roomState.turn.toLowerCase());
+    const mine = roomState.turn === roomState.ownSymbol;
+    banner.querySelector('strong').textContent = mine ? `Tocca a te: gioca ${roomState.ownSymbol}` : `Turno dell’avversario (${roomState.turn})`;
+    return;
   }
+  banner.querySelector('strong').textContent = roomState.status === 'draw' ? 'Partita terminata in pareggio' : `Ha vinto ${roomState.winner}`;
 }
 
-function initChunkWorker(){
-  if(!window.Worker){chunkWorkerReady=Promise.resolve(false);return}
-  chunkWorkerReady=new Promise(resolve=>{chunkWorkerReadyResolve=resolve});
-  try{
-    chunkWorker=new Worker('/chunk-worker.js');
-    chunkWorker.onmessage=event=>{
-      const data=event.data||{};
-      if(data.type==='ready'){chunkWorkerReadyResolve?.(true);chunkWorkerReadyResolve=null;return}
-      if(data.type==='chunk'){const pending=chunkRequests.get(data.requestId);if(!pending)return;chunkRequests.delete(data.requestId);pending.resolve(data.positionsByType||{})}
-    };
-    chunkWorker.onerror=()=>{
-      chunkWorkerReadyResolve?.(false);chunkWorkerReadyResolve=null;
-      for(const pending of chunkRequests.values())pending.reject(new Error('Chunk worker unavailable'));
-      chunkRequests.clear();chunkWorker?.terminate();chunkWorker=null;
-    };
-    chunkWorker.postMessage({type:'init',overrides,circuitPower});
-  }catch{chunkWorkerReadyResolve?.(false);chunkWorkerReadyResolve=null;chunkWorker=null}
-}
-function notifyWorkerBlock(x,y,z,blockType){chunkWorker?.postMessage({type:'blockUpdate',key:keyOf(x,y,z),blockType})}
-function notifyWorkerCircuits(){chunkWorker?.postMessage({type:'circuitUpdate',circuitPower})}
-function chunkKey(chunkX,chunkZ){return`${chunkX},${chunkZ}`}
-function renderChunkRadius(){return settings.quality==='low'?2:3}
-function desiredChunkCoordinates(){
-  const centerX=Math.floor((camera?.position.x||0)/CHUNK_SIZE),centerZ=Math.floor((camera?.position.z||0)/CHUNK_SIZE),radius=renderChunkRadius(),result=[];
-  for(let x=centerX-radius;x<=centerX+radius;x++)for(let z=centerZ-radius;z<=centerZ+radius;z++)result.push({x,z,distance:Math.hypot(x-centerX,z-centerZ)});
-  return result.sort((a,b)=>a.distance-b.distance);
-}
-function isChunkRetained(chunkX,chunkZ){const centerX=Math.floor(camera.position.x/CHUNK_SIZE),centerZ=Math.floor(camera.position.z/CHUNK_SIZE),radius=renderChunkRadius()+1;return Math.abs(chunkX-centerX)<=radius&&Math.abs(chunkZ-centerZ)<=radius}
-function disposeChunk(key){
-  const group=loadedChunks.get(key);if(!group)return;const meshes=new Set(group.userData.blockMeshes||[]);blockMeshes=blockMeshes.filter(mesh=>!meshes.has(mesh));
-  worldGroup.remove(group);loadedChunks.delete(key);
-}
-function generateChunkDataSync(chunkX,chunkZ){
-  const positionsByType={};for(const type of [...Object.keys(blockMaterials),'water'])positionsByType[type]=[];
-  const startX=chunkX*CHUNK_SIZE,startZ=chunkZ*CHUNK_SIZE,endX=startX+CHUNK_SIZE-1,endZ=startZ+CHUNK_SIZE-1;
-  for(let x=startX;x<=endX;x++)for(let z=startZ;z<=endZ;z++)for(let y=0,top=Math.max(terrainHeight(x,z)+11,WATER_LEVEL+1,30);y<=top;y++){
-    const type=getBlock(x,y,z);if(!type||!positionsByType[type])continue;const exposed=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].some(([dx,dy,dz])=>{const neighbor=getBlock(x+dx,y+dy,z+dz);return!neighbor||(type!=='water'&&neighbor==='water')||(type==='water'&&neighbor!=='water')});
-    const powered=circuitPower[keyOf(x,y,z)]&&['redstoneWire','lever','lamp','piston'].includes(type),renderType=powered?`${type}On`:type;if(exposed&&positionsByType[renderType])positionsByType[renderType].push(x,y,z);
-  }
-  return positionsByType;
-}
-async function requestChunkData(chunkX,chunkZ){
-  const ready=await chunkWorkerReady;if(!ready||!chunkWorker)return generateChunkDataSync(chunkX,chunkZ);
-  const requestId=++chunkRequestId;return new Promise((resolve,reject)=>{chunkRequests.set(requestId,{resolve,reject});chunkWorker.postMessage({type:'build',requestId,chunkX,chunkZ})});
-}
-function blockGeometry(type){
-  const baseType=type.endsWith('On')?type.slice(0,-2):type,thin=baseType==='redstoneWire',short=baseType==='lever',extended=type==='pistonOn';
-  const geometryKey=type==='water'?'water':thin?'wire':short?'lever':extended?'pistonOn':'cube';
-  if(!sharedBlockGeometries.has(geometryKey))sharedBlockGeometries.set(geometryKey,new THREE.BoxGeometry(type==='water'?1:1.001,type==='water'?.82:thin?.08:short?.3:extended?1.3:1.001,type==='water'?1:1.001));
-  return sharedBlockGeometries.get(geometryKey);
-}
-function applyChunkData(chunkX,chunkZ,positionsByType){
-  const key=chunkKey(chunkX,chunkZ),group=new THREE.Group(),matrix=new THREE.Matrix4(),chunkMeshes=[];
-  for(const[type,packed]of Object.entries(positionsByType)){if(!packed?.length)continue;const baseType=type.endsWith('On')?type.slice(0,-2):type,thin=baseType==='redstoneWire',short=baseType==='lever',extended=type==='pistonOn',count=Math.floor(packed.length/3),positions=new Array(count),mesh=new THREE.InstancedMesh(blockGeometry(type),blockMaterials[type],count),offset=type==='water'?-.09:thin?-.46:short?-.35:extended?.15:0;
-    for(let index=0;index<count;index++){const position={x:packed[index*3],y:packed[index*3+1],z:packed[index*3+2]};positions[index]=position;matrix.makeTranslation(position.x,position.y+offset,position.z);mesh.setMatrixAt(index,matrix)}
-    mesh.instanceMatrix.needsUpdate=true;mesh.userData.positions=positions;mesh.userData.blockType=baseType;mesh.receiveShadow=type!=='water';mesh.castShadow=['wood','leaves'].includes(baseType);group.add(mesh);chunkMeshes.push(mesh);
-  }
-  group.userData.blockMeshes=chunkMeshes;disposeChunk(key);loadedChunks.set(key,group);worldGroup.add(group);for(const mesh of chunkMeshes)if(mesh.userData.blockType!=='water')blockMeshes.push(mesh);
-  return group;
-}
-async function buildChunk(chunkX,chunkZ){
-  const key=chunkKey(chunkX,chunkZ),version=(chunkBuildVersions.get(key)||0)+1;chunkBuildVersions.set(key,version);
-  let positionsByType;try{positionsByType=await requestChunkData(chunkX,chunkZ)}catch{positionsByType=generateChunkDataSync(chunkX,chunkZ)}
-  if(chunkBuildVersions.get(key)!==version||!isChunkRetained(chunkX,chunkZ))return null;
-  return applyChunkData(chunkX,chunkZ,positionsByType);
-}
-async function pumpChunkQueue(){
-  chunkPumpTimer=null;if(chunkPumpBusy)return;const next=chunkQueue.shift();if(!next){$('#stream-status')?.classList.add('hidden');return}chunkPumpBusy=true;const key=chunkKey(next.x,next.z);$('#stream-status')?.classList.remove('hidden');queuedChunks.delete(key);buildingChunks.add(key);
-  try{if(next.force||!loadedChunks.has(key))await buildChunk(next.x,next.z)}finally{buildingChunks.delete(key)}
-  chunkPumpBusy=false;if(chunkQueue.length)chunkPumpTimer=setTimeout(pumpChunkQueue,0);else $('#stream-status')?.classList.add('hidden');
-}
-function refreshVisibleChunks(force=false){
-  const desired=desiredChunkCoordinates(),wanted=new Set(desired.map(chunk=>chunkKey(chunk.x,chunk.z))),centerX=Math.floor(camera.position.x/CHUNK_SIZE),centerZ=Math.floor(camera.position.z/CHUNK_SIZE),keepRadius=renderChunkRadius()+1;
-  for(const key of [...loadedChunks.keys()]){const[x,z]=key.split(',').map(Number);if(Math.abs(x-centerX)>keepRadius||Math.abs(z-centerZ)>keepRadius)disposeChunk(key)}
-  for(const key of generatedChunkCache.keys()){const[x,z]=key.split(',').map(Number);if(Math.abs(x-centerX)>keepRadius+1||Math.abs(z-centerZ)>keepRadius+1)generatedChunkCache.delete(key)}
-  chunkWorker?.postMessage({type:'prune',centerX,centerZ,radius:keepRadius+1});
-  if(force){chunkQueue=[];queuedChunks.clear()}else{chunkQueue=chunkQueue.filter(chunk=>wanted.has(chunkKey(chunk.x,chunk.z)));queuedChunks.clear();for(const chunk of chunkQueue)queuedChunks.add(chunkKey(chunk.x,chunk.z))}
-  for(const chunk of desired){const key=chunkKey(chunk.x,chunk.z);if(queuedChunks.has(key))continue;if(buildingChunks.has(key)){if(force){chunkBuildVersions.set(key,(chunkBuildVersions.get(key)||0)+1);queuedChunks.add(key);chunkQueue.push({...chunk,force:true})}continue}if(!force&&loadedChunks.has(key))continue;queuedChunks.add(key);chunkQueue.push({...chunk,force})}
-  if(chunkQueue.length){$('#stream-status')?.classList.remove('hidden');if(!chunkPumpTimer&&!chunkPumpBusy)chunkPumpTimer=setTimeout(pumpChunkQueue,0)}
-  renderedChunkX=centerX;renderedChunkZ=centerZ;
-}
-async function buildWorld(){
-  const progress=$('#loading-progress');if(progress)progress.style.width='18%';for(const key of [...loadedChunks.keys()])disposeChunk(key);chunkQueue=[];queuedChunks.clear();buildingChunks.clear();blockMeshes=[];const desired=desiredChunkCoordinates();
-  for(let index=0;index<desired.length;index++){const chunk=desired[index];buildingChunks.add(chunkKey(chunk.x,chunk.z));await buildChunk(chunk.x,chunk.z);buildingChunks.delete(chunkKey(chunk.x,chunk.z));if(progress)progress.style.width=`${18+Math.round((index+1)/desired.length*74)}%`;await new Promise(resolve=>requestAnimationFrame(resolve))}
-  renderedChunkX=Math.floor(camera.position.x/CHUNK_SIZE);renderedChunkZ=Math.floor(camera.position.z/CHUNK_SIZE);worldReady=true;
-}
-function scheduleWorldRebuild(position=null,force=false){
-  if(force)pendingForceRefresh=true;else if(!position)pendingWorldRefresh=true;else{const cx=Math.floor(position.x/CHUNK_SIZE),cz=Math.floor(position.z/CHUNK_SIZE),targets=[[cx,cz]],localX=((position.x%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE,localZ=((position.z%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE;if(localX===0)targets.push([cx-1,cz]);if(localX===CHUNK_SIZE-1)targets.push([cx+1,cz]);if(localZ===0)targets.push([cx,cz-1]);if(localZ===CHUNK_SIZE-1)targets.push([cx,cz+1]);for(const[x,z]of targets)pendingDirtyChunks.add(chunkKey(x,z))}
-  if(rebuildTimer)return;rebuildTimer=setTimeout(()=>{rebuildTimer=null;if(pendingForceRefresh){pendingForceRefresh=false;pendingWorldRefresh=false;pendingDirtyChunks.clear();refreshVisibleChunks(true);return}if(pendingWorldRefresh){pendingWorldRefresh=false;refreshVisibleChunks(false)}for(const key of pendingDirtyChunks){const[x,z]=key.split(',').map(Number);if(loadedChunks.has(key)||buildingChunks.has(key))buildChunk(x,z)}pendingDirtyChunks.clear()},35);
+function renderResult() {
+  const panel = $('#result-panel');
+  const finished = ['won', 'draw'].includes(roomState.status);
+  panel.classList.toggle('hidden', !finished);
+  if (!finished) return;
+  const ownWin = roomState.status === 'won' && roomState.winner === roomState.ownSymbol;
+  const opponent = roomState.players.find(player => player.symbol !== roomState.ownSymbol)?.name || 'L’avversario';
+  $('#result-icon').textContent = roomState.status === 'draw' ? '＝' : ownWin ? '♛' : '◇';
+  $('#result-title').textContent = roomState.status === 'draw' ? 'Pareggio!' : ownWin ? 'Hai vinto!' : `${opponent} ha vinto`;
+  $('#result-copy').textContent = roomState.status === 'draw' ? 'Bella partita. Prova a prenderti il prossimo round.' : ownWin ? 'Tre simboli in fila: partita perfetta.' : 'Puoi chiedere subito la rivincita.';
+  const button = $('#rematch-button');
+  button.disabled = rematchRequested;
+  button.querySelector('span').textContent = rematchRequested ? `In attesa… (${roomState.rematchVotes}/2)` : 'Rivincita';
 }
 
-function simpleMaterial(color, emissive = 0) { return new THREE.MeshToonMaterial({ color, emissive }); }
-function box(w, h, d, material) { const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material); mesh.castShadow = true; mesh.receiveShadow = true; return mesh; }
-
-function createNameTag(text, color = '#ffffff') {
-  const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 48;
-  const ctx = canvas.getContext('2d'); ctx.fillStyle = 'rgba(5,12,14,.75)'; ctx.roundRect(8, 5, 240, 36, 9); ctx.fill();
-  ctx.fillStyle = color; ctx.font = '600 19px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(text, 128, 30);
-  const map = new THREE.CanvasTexture(canvas); map.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthTest: false })); sprite.scale.set(3.4, .64, 1); return sprite;
+function renderRoom() {
+  if (!roomState) return;
+  showView('game-view');
+  $('#queue-overlay').classList.add('hidden');
+  queued = false;
+  $('#room-code').textContent = roomState.code;
+  $('#round-label').textContent = `ROUND ${roomState.round}`;
+  $('#game-title').textContent = roomState.status === 'waiting' ? 'Invita un amico' : 'Partita in corso';
+  renderPlayer('X'); renderPlayer('O'); renderBoard(); renderStatus(); renderResult();
 }
 
-function createPlayerModel(player) {
-  const group = new THREE.Group();
-  const hue = worldHash([...player.name].reduce((a, char) => a + char.charCodeAt(0), 0), 8);
-  const shirt = simpleMaterial(new THREE.Color().setHSL(hue, .45, .42));
-  const skin = simpleMaterial(0xd7a579); const dark = simpleMaterial(0x263b42); const hair = simpleMaterial(0x3a2a24);
-  const body = box(.62, .85, .34, shirt); body.position.y = 1.05; group.add(body);
-  const head = box(.5, .5, .5, skin); head.position.y = 1.75; group.add(head);
-  const hairTop = box(.52, .13, .52, hair); hairTop.position.y = 2.02; group.add(hairTop);
-  const leftArm = box(.2, .78, .22, skin), rightArm = leftArm.clone(); leftArm.position.set(-.43, 1.05, 0); rightArm.position.set(.43, 1.05, 0); group.add(leftArm, rightArm);
-  const leftLeg = box(.25, .78, .28, dark), rightLeg = leftLeg.clone(); leftLeg.position.set(-.18, .28, 0); rightLeg.position.set(.18, .28, 0); group.add(leftLeg, rightLeg);
-  const tag = createNameTag(player.clan ? `[${player.clan}] ${player.name}` : player.name, player.clan ? '#f1bf59' : '#ffffff'); tag.position.y = 2.55; group.add(tag);
-  group.userData = { entityType: 'player', id: player.id, name: player.name, clan: player.clan, target: new THREE.Vector3(player.x, player.y - EYE_HEIGHT, player.z), leftArm, rightArm, leftLeg, rightLeg };
-  group.position.copy(group.userData.target); group.rotation.y = player.yaw || 0; return group;
+function returnToLobby() {
+  roomState = null;
+  rematchRequested = false;
+  $('#result-panel').classList.add('hidden');
+  showView('lobby-view');
 }
 
-function createMobModel(mob) {
-  const group = new THREE.Group();
-  let body;
-  if (mob.kind === 'slime') {
-    const mat = simpleMaterial(0x52b66b, 0x0d2612); body = box(1.15, .9, 1.15, mat); body.position.y = .5; group.add(body);
-    const eye = simpleMaterial(0x15231c); for (const x of [-.25,.25]) { const e=box(.12,.16,.06,eye);e.position.set(x,.65,.59);group.add(e); }
-  } else if (mob.kind === 'boar') {
-    body = box(1.35,.75,.68,simpleMaterial(0x76503b));body.position.y=.65;group.add(body);const head=box(.64,.58,.58,simpleMaterial(0x8e6246));head.position.set(0,.65,.58);group.add(head);
-    for(const x of [-.42,.42])for(const z of [-.22,.28]){const leg=box(.18,.55,.18,simpleMaterial(0x4f382c));leg.position.set(x,.26,z);group.add(leg)}
-  } else if (mob.kind === 'golem') {
-    const stone=simpleMaterial(0x676f68);body=box(1.05,1.2,.6,stone);body.position.y=1.05;group.add(body);const head=box(.7,.65,.65,simpleMaterial(0x7e887d));head.position.y=1.95;group.add(head);
-    for(const x of [-.73,.73]){const arm=box(.35,1.25,.4,stone);arm.position.set(x,1.02,0);group.add(arm)}
-  } else if(mob.kind==='skySentinel'){
-    const celestial=simpleMaterial(0x75a8bd,0x193f57);body=box(.9,1.25,.55,celestial);body.position.y=1.05;group.add(body);const head=box(.62,.58,.62,simpleMaterial(0xd5e9e7,0x345e67));head.position.y=1.95;group.add(head);for(const x of[-.7,.7]){const wing=box(.65,.12,1.05,simpleMaterial(0x9fd4d4,0x244f59));wing.position.set(x,1.35,.2);wing.rotation.z=x>0?.35:-.35;group.add(wing)}
-  } else {
-    const cloak = simpleMaterial(0x4d3a70, 0x1e0d35); body = box(.85,1.45,.45,cloak); body.position.y=1.05;group.add(body);const head=box(.58,.58,.58,simpleMaterial(0x9281bd,0x2b1748));head.position.y=1.92;group.add(head);
-  }
-  const boss=Boolean(mob.boss||['ancientGuardian','voidDragon'].includes(mob.kind));
-  if(boss){group.scale.setScalar(mob.kind==='voidDragon'?2.2:1.75);const crown=box(.8,.18,.8,simpleMaterial(mob.kind==='voidDragon'?0x7438a0:0x39b5a5,0x321649));crown.position.y=2.35;group.add(crown)}
-  const hpBack=box(1.3,.09,.04,simpleMaterial(0x2b3130));hpBack.position.set(0,2.65,0);const hp=box(1.26,.065,.05,simpleMaterial(boss?0xec4b62:0xd85955));hp.position.set(0,2.65,.03);group.add(hpBack,hp);
-  const tag=createNameTag(MOB_LABELS[mob.kind]||mob.kind,'#ffd4c7');tag.position.y=2.95;tag.scale.multiplyScalar(.78);group.add(tag);
-  group.userData={entityType:'mob',id:mob.id,kind:mob.kind,boss,target:new THREE.Vector3(mob.x,mob.y-.55,mob.z),hpBar:hp,hp:mob.hp,maxHp:mob.maxHp};
-  group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);return group;
-}
-
-function createDragonModel(dragon) {
-  const group = new THREE.Group(); const scale=1.25;
-  const bodyMat=simpleMaterial(dragon.id.endsWith('1')?0x2c8b78:0x994735);const belly=simpleMaterial(0xd5ac62);const horn=simpleMaterial(0xe6d4a4);
-  const body=box(1.2,.85,2.5,bodyMat);body.position.y=.9;group.add(body);const neck=box(.65,.72,1.25,bodyMat);neck.position.set(0,1.25,-1.55);neck.rotation.x=-.25;group.add(neck);
-  const head=box(.9,.7,1,bodyMat);head.position.set(0,1.55,-2.2);group.add(head);const snout=box(.68,.38,.68,belly);snout.position.set(0,1.4,-2.82);group.add(snout);
-  for(const x of [-.28,.28]){const h=box(.12,.42,.12,horn);h.position.set(x,2,-2.05);h.rotation.x=-.35;group.add(h)}
-  const wingMaterial=new THREE.MeshLambertMaterial({color:dragon.id.endsWith('1')?0x45b39b:0xbb5d47,side:THREE.DoubleSide,transparent:true,opacity:.92});
-  const wingGeo=new THREE.BufferGeometry();wingGeo.setAttribute('position',new THREE.Float32BufferAttribute([0,0,0,3,.15,.8,2.5,0,2.2,0,0,1.2],3));wingGeo.setIndex([0,1,2,0,2,3]);wingGeo.computeVertexNormals();
-  const leftWing=new THREE.Mesh(wingGeo,wingMaterial),rightWing=leftWing.clone();leftWing.position.set(.45,1.25,-.4);rightWing.position.set(-.45,1.25,-.4);rightWing.scale.x=-1;group.add(leftWing,rightWing);
-  for(const x of [-.42,.42])for(const z of [-.75,.75]){const leg=box(.26,.72,.28,bodyMat);leg.position.set(x,.35,z);group.add(leg)}
-  const tail=box(.48,.45,2.3,bodyMat);tail.position.set(0,.85,2.2);tail.rotation.x=-.12;group.add(tail);
-  const tag=createNameTag(`${dragon.name} · Drago`,'#ffe092');tag.position.y=3.05;group.add(tag);
-  group.scale.setScalar(scale);group.userData={entityType:'dragon',id:dragon.id,target:new THREE.Vector3(dragon.x,dragon.y-.8,dragon.z),leftWing,rightWing,rider:dragon.rider};group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);group.rotation.y=dragon.yaw||0;return group;
-}
-
-function createLootBoxModel(boxData){
-  const group=new THREE.Group(),wood=simpleMaterial(0x8d6034),trim=simpleMaterial(0xe0ad4f,0x2b1805);
-  const chest=box(.92,.62,.72,wood);chest.position.y=.36;const lid=box(.96,.22,.76,trim);lid.position.y=.76;const lock=box(.15,.22,.05,trim);lock.position.set(0,.52,.39);group.add(chest,lid,lock);
-  const tag=createNameTag(`Box di ${boxData.owner}`,'#ffe09a');tag.position.y=1.45;tag.scale.multiplyScalar(.78);group.add(tag);
-  group.userData={entityType:'lootBox',id:boxData.id,owner:boxData.owner,target:new THREE.Vector3(boxData.x,boxData.y,boxData.z)};group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);return group;
-}
-
-function createItemDropModel(drop){
-  const group=new THREE.Group(),info=ITEM_INFO[drop.item]||[drop.item,'#777','?'];
-  const rarity=drop.rarity||ITEM_RARITY[drop.item]||'common',rarityColor={common:'#dff8e8',uncommon:'#76d893',rare:'#72aff0',epic:'#c48af0',legendary:'#f1bf59'}[rarity];
-  const item=box(.34,.34,.34,simpleMaterial(info[1]||0xb9b9b9,rarity==='epic'?0x35174f:rarity==='legendary'?0x5a3e08:drop.item==='crystal'?0x164754:0));item.rotation.set(.25,.3,.12);group.add(item);
-  const tag=createNameTag(`${itemName(drop.item)} ×${drop.amount||1} · ${RARITY_LABEL[rarity]}`,rarityColor);tag.position.y=.85;tag.scale.multiplyScalar(.68);group.add(tag);
-  group.userData={entityType:'itemDrop',id:drop.id,item:drop.item,rarity,target:new THREE.Vector3(drop.x,drop.y,drop.z)};group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);return group;
-}
-
-function createNpcModel(npc){
-  const group=new THREE.Group(),robe=simpleMaterial(new THREE.Color(npc.color||'#5fb98e')),skin=simpleMaterial(0xd4a177),dark=simpleMaterial(0x263631);
-  const body=box(.68,1.05,.42,robe);body.position.y=.9;const head=box(.52,.52,.52,skin);head.position.y=1.72;const hair=box(.54,.14,.54,dark);hair.position.y=2;group.add(body,head,hair);
-  for(const x of [-.45,.45]){const arm=box(.18,.75,.2,skin);arm.position.set(x,.92,0);group.add(arm)}
-  const tag=createNameTag(`${npc.name} · ${npc.role}`,'#ffe39b');tag.position.y=2.55;group.add(tag);
-  group.userData={entityType:'npc',id:npc.id,name:npc.name,role:npc.role,target:new THREE.Vector3(npc.x,npc.y,npc.z)};group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);return group;
-}
-
-function createWorldChestModel(chestData){
-  const group=new THREE.Group(),wood=simpleMaterial(chestData.claimed?0x514c43:0x76502d),trim=simpleMaterial(chestData.claimed?0x696b67:0xe2bd55,chestData.claimed?0:0x4b3009);
-  const base=box(1.05,.62,.8,wood);base.position.y=.35;const lid=box(1.1,.28,.84,trim);lid.position.y=.78;const lock=box(.18,.25,.07,trim);lock.position.set(0,.53,.44);group.add(base,lid,lock);
-  const tag=createNameTag(chestData.claimed?`${chestData.name} · vuoto`:chestData.name,chestData.claimed?'#999b96':'#ffe092');tag.position.y=1.5;tag.scale.multiplyScalar(.78);group.add(tag);
-  group.userData={entityType:'chest',id:chestData.id,name:chestData.name,claimed:Boolean(chestData.claimed),target:new THREE.Vector3(chestData.x,chestData.y,chestData.z)};group.traverse(child=>child.userData.entityRoot=group);group.position.copy(group.userData.target);return group;
-}
-
-function syncPlayers(list) {
-  const ids = new Set(list.map(player => player.id));
-  for (const [id, model] of remotePlayers) if (!ids.has(id) || id === self?.id) { entityGroup.remove(model); remotePlayers.delete(id); }
-  for (const player of list) {
-    if (player.id === self?.id) continue;
-    if (!remotePlayers.has(player.id)) { const model=createPlayerModel(player);remotePlayers.set(player.id,model);entityGroup.add(model); }
-    const model=remotePlayers.get(player.id);model.userData.target.set(player.x,player.y-EYE_HEIGHT,player.z);model.userData.targetYaw=player.yaw||0;
-  }
-  $('#online-count').textContent=`${Math.max(1,list.length)} ${list.length===1?'esploratore':'esploratori'} online`;
-}
-
-function syncMobs(list) {
-  const ids=new Set(list.map(m=>m.id));for(const[id,model]of mobs)if(!ids.has(id)){entityGroup.remove(model);mobs.delete(id)}
-  for(const mob of list){if(!mobs.has(mob.id)){const model=createMobModel(mob);mobs.set(mob.id,model);entityGroup.add(model)}const model=mobs.get(mob.id);model.userData.target.set(mob.x,mob.y-.55,mob.z);model.userData.targetYaw=mob.yaw;model.userData.hp=mob.hp;model.userData.maxHp=mob.maxHp;model.userData.hpBar.scale.x=Math.max(.001,mob.hp/mob.maxHp);model.userData.hpBar.position.x=-.63*(1-mob.hp/mob.maxHp)}
-}
-function syncDragons(list) {
-  const ids=new Set(list.map(d=>d.id));for(const[id,model]of dragons)if(!ids.has(id)){dragonGroup.remove(model);dragons.delete(id)}
-  for(const dragon of list){if(!dragons.has(dragon.id)){const model=createDragonModel(dragon);dragons.set(dragon.id,model);dragonGroup.add(model)}const model=dragons.get(dragon.id);model.userData.target.set(dragon.x,dragon.y-.8,dragon.z);model.userData.targetYaw=dragon.yaw;model.userData.rider=dragon.rider}
-}
-
-function syncLootBoxes(list){
-  const ids=new Set(list.map(item=>item.id));for(const[id,model]of lootBoxes)if(!ids.has(id)){entityGroup.remove(model);lootBoxes.delete(id)}
-  for(const item of list){if(!lootBoxes.has(item.id)){const model=createLootBoxModel(item);lootBoxes.set(item.id,model);entityGroup.add(model)}const model=lootBoxes.get(item.id);model.userData.target.set(item.x,item.y,item.z)}
-}
-function syncItemDrops(list){
-  const ids=new Set(list.map(item=>item.id));for(const[id,model]of itemDrops)if(!ids.has(id)){entityGroup.remove(model);itemDrops.delete(id)}
-  for(const item of list){if(!itemDrops.has(item.id)){const model=createItemDropModel(item);itemDrops.set(item.id,model);entityGroup.add(model)}const model=itemDrops.get(item.id);model.userData.target.set(item.x,item.y,item.z)}
-}
-function syncNpcs(list){
-  const ids=new Set(list.map(item=>item.id));for(const[id,model]of npcs)if(!ids.has(id)){entityGroup.remove(model);npcs.delete(id)}
-  for(const item of list){if(!npcs.has(item.id)){const model=createNpcModel(item);npcs.set(item.id,model);entityGroup.add(model)}}
-}
-function syncChests(list){
-  const ids=new Set(list.map(item=>item.id));for(const[id,model]of chests)if(!ids.has(id)){entityGroup.remove(model);chests.delete(id)}
-  for(const item of list){const current=chests.get(item.id);if(!current||current.userData.claimed!==Boolean(item.claimed)){if(current)entityGroup.remove(current);const model=createWorldChestModel(item);chests.set(item.id,model);entityGroup.add(model)}}
-}
-
-function iconMarkup(item) {
-  const info=ITEM_INFO[item]||[item,'#666','?'];const tool=!info[1];return `<span class="item-icon ${tool?'tool':''}" style="--item:${info[1]||'transparent'}">${info[2]||''}</span>`;
-}
-function itemName(item){return ITEM_INFO[item]?.[0]||item}
-function selectedItem(){return hotbarItems[selectedSlot]}
-
-function refreshProfile(next) {
-  profile={...profile,...next};
-  const maxHealth=profile.maxHealth||100,maxMana=profile.maxMana||100,xpNext=profile.xpNext||175;$('#coins').textContent=profile.coins;$('#health-text').textContent=`${profile.health}/${maxHealth}`;$('#health-bar').style.width=`${profile.health/maxHealth*100}%`;$('#mana-text').textContent=`${Math.round(profile.mana??maxMana)}/${maxMana}`;$('#mana-bar').style.width=`${(profile.mana??maxMana)/maxMana*100}%`;$('#level-badge').textContent=profile.level||1;$('#xp-text').textContent=`${profile.xp||0}/${xpNext}`;$('#xp-bar').style.width=`${(profile.xp||0)/xpNext*100}%`;
-  $('#player-label').textContent=profile.name;$('#avatar-letter').textContent=profile.name[0].toUpperCase();$('#clan-label').textContent=profile.clan||'Senza clan';
-  profile.health<=30?$('#health-bar').style.filter='brightness(1.35)':$('#health-bar').style.filter='';
-  fillHotbar();updateHeldViewModel();renderInventory();renderQuests();renderExploration();renderSkills();renderCrafting();renderShop();renderClans();
-  if(next.message)toast(next.message);
-}
-
-function fillHotbar() {
-  const available=Object.keys(profile?.inventory||{}).filter(item=>(profile.inventory[item]||0)>0&&!isArmor(item));
-  hotbarItems=hotbarItems.map(item=>item&&profile.inventory[item]>0&&!isArmor(item)?item:null);
-  for(const item of available){if(!hotbarItems.includes(item)&&hotbarItems.includes(null))hotbarItems[hotbarItems.indexOf(null)]=item}
-  $('#hotbar').innerHTML=hotbarItems.map((item,index)=>`<button class="hot-slot ${index===selectedSlot?'selected':''}" data-slot="${index}" title="${item?itemName(item):'Vuoto'}"><span class="key">${index+1}</span>${item?iconMarkup(item):''}<span class="count">${item?(profile.inventory[item]||0):''}</span></button>`).join('');
-  $$('.hot-slot').forEach(button=>button.onclick=()=>selectSlot(Number(button.dataset.slot)));
-}
-function selectSlot(index){selectedSlot=Math.max(0,Math.min(8,index));fillHotbar();updateHeldViewModel();sound('ui')}
-function cycleHotbar(direction){
-  for(let offset=1;offset<=hotbarItems.length;offset++){
-    const index=(selectedSlot+direction*offset+hotbarItems.length)%hotbarItems.length;
-    if(hotbarItems[index]){selectSlot(index);return}
-  }
-}
-function isArmor(item){return /Helmet|Chestplate|Boots/.test(item)}
-function equipItem(item){if(isArmor(item)){socket.emit('equipItem',item);sound('ui');return}if(!hotbarItems.includes(item))hotbarItems[selectedSlot]=item;else selectedSlot=hotbarItems.indexOf(item);fillHotbar();updateHeldViewModel();toast(`${itemName(item)} nella barra rapida`);sound('ui')}
-function dropPosition(){camera.getWorldDirection(forward);forward.y=0;forward.normalize();return{x:camera.position.x+forward.x*1.7,y:camera.position.y-EYE_HEIGHT+.42,z:camera.position.z+forward.z*1.7}}
-function showInventoryActions(item){
-  const nearby=[...remotePlayers.values()].filter(model=>model.position.distanceTo(camera.position)<7).map(model=>({id:model.userData.id,name:model.userData.name}));const panel=$('#inventory-actions');
-  panel.innerHTML=`<header>${iconMarkup(item)}<strong>${itemName(item)}</strong><button aria-label="Chiudi">×</button></header><div class="action-buttons"><button data-equip>${isArmor(item)?'Indossa / rimuovi':'Metti in barra'}</button><button class="drop" data-drop>Getta a terra</button></div>${item!=='lootBox'?`<div class="gift-row"><select><option value="">Giocatore vicino…</option>${nearby.map(player=>`<option value="${player.id}">${escapeHtml(player.name)}</option>`).join('')}</select><button data-gift ${nearby.length?'':'disabled'}>Regala</button></div>`:'<p class="panel-copy">Posalo vicino al proprietario per restituirglielo.</p>'}`;
-  panel.classList.remove('hidden');panel.querySelector('header button').onclick=()=>panel.classList.add('hidden');panel.querySelector('[data-equip]').onclick=()=>equipItem(item);
-  panel.querySelector('[data-drop]').onclick=()=>{const position=dropPosition();if(item==='lootBox')socket.emit('dropLootBox',position);else socket.emit('dropItem',{item,...position});panel.classList.add('hidden')};
-  const gift=panel.querySelector('[data-gift]');if(gift)gift.onclick=()=>{const targetId=panel.querySelector('select').value;if(targetId){socket.emit('giftItem',{item,targetId});panel.classList.add('hidden')}};
-}
-function renderInventory(){
-  if(!profile)return;$('#inventory-grid').innerHTML=Object.entries(profile.inventory).sort((a,b)=>a[0].localeCompare(b[0])).map(([item,count])=>{const rarity=ITEM_RARITY[item]||'common';return `<button class="inventory-item rarity-${rarity}" data-item="${item}"><em>${count}</em>${iconMarkup(item)}<b>${itemName(item)}</b><small>${RARITY_LABEL[rarity]}</small></button>`}).join('')||'<p>Lo zaino è vuoto.</p>';
-  const slots=[['helmet','◉','ELMO'],['chest','⬟','CORAZZA'],['boots','⌑','STIVALI']];$('#equipment-slots').innerHTML=slots.map(([slot,icon,label])=>`<button class="equipment-slot" data-equipped="${profile.equipment?.[slot]||''}"><span>${icon}</span><div><small>${label}</small><b>${profile.equipment?.[slot]?itemName(profile.equipment[slot]):'Vuoto'}</b></div></button>`).join('');$$('[data-equipped]').forEach(button=>button.onclick=()=>{if(button.dataset.equipped)socket.emit('equipItem',button.dataset.equipped)});
-  $$('.inventory-item').forEach(button=>{button.onclick=()=>showInventoryActions(button.dataset.item);button.oncontextmenu=event=>{event.preventDefault();equipItem(button.dataset.item)}});
-}
-function costText(cost){return Object.entries(cost).map(([item,amount])=>`${amount} ${itemName(item)}`).join(' · ')}
-function canAfford(cost){return Object.entries(cost).every(([item,amount])=>(profile?.inventory[item]||0)>=amount)}
-function renderCrafting(){if(!profile)return;$('#recipe-list').innerHTML=Object.entries(recipes).map(([id,recipe])=>`<article class="shop-item"><strong>${recipe.label}</strong><p class="cost">${costText(recipe.cost)}</p><button data-craft="${id}" ${canAfford(recipe.cost)?'':'disabled'}>Crea</button></article>`).join('');$$('[data-craft]').forEach(button=>button.onclick=()=>socket.emit('craft',button.dataset.craft))}
-function renderShop(){if(!profile)return;$('#shop-list').innerHTML=Object.entries(shop).map(([id,product])=>`<article class="shop-item"><strong>${product.label}</strong><p class="cost">◈ ${product.price} monete</p><button data-buy="${id}" ${profile.coins>=product.price?'':'disabled'}>Acquista</button></article>`).join('');$$('[data-buy]').forEach(button=>button.onclick=()=>socket.emit('buy',button.dataset.buy))}
-function renderQuests(){if(!profile)return;const quests=profile.quests||[],quest=quests[profile.questIndex||0];if(!quest){$('#quests').innerHTML='<article class="quest done"><header><strong>Eroe di Terranovaland</strong><b>CAMPAGNA COMPLETA</b></header><p>Il Drago del Vuoto è caduto. Continua a esplorare, costruire e aiutare il tuo clan.</p></article>';return}const current=Math.min(profile.questProgress?.[quest.id]||0,quest.goal),reward=quest.reward||{};$('#quests').innerHTML=`<article class="quest"><header><strong>${profile.questIndex+1}. ${quest.title}</strong><b>${current} / ${quest.goal}</b></header><p>${quest.description}<br>Ricompensa: ◈ ${reward.coins||0} · ${reward.xp||0} XP</p><div class="bar"><i style="width:${current/quest.goal*100}%"></i></div><small class="explore-count">Luoghi scoperti: ${(profile.discoveredLandmarks||[]).length}/${profile.landmarkTotal||landmarks.length}</small></article>`}
-function renderExploration(){const found=new Set(profile?.discoveredLandmarks||[]);const list=$('#landmark-list');if(!list)return;list.innerHTML=landmarks.map(mark=>`<article class="landmark-item ${found.has(mark.id)?'found':''}"><span>${found.has(mark.id)?'◆':'?'}</span><div><strong>${found.has(mark.id)?mark.name:'Luogo inesplorato'}</strong><p>${found.has(mark.id)?`${mark.type} · coordinate ${mark.x}, ${mark.z}`:'Esplora il mondo per rivelarlo'}</p></div></article>`).join('')}
-function renderSkills(){if(!profile||!$('#skill-list'))return;const icons={miner:'⚒',warrior:'⚔',vitality:'♥',explorer:'⌖'},active={miner:'Estrazione 2× · G',warrior:'Colpo potente · Q',vitality:'Cura · R',explorer:'Passo del vento · V'};$('#skill-points').textContent=profile.skillPoints||0;$('#skill-list').innerHTML=Object.entries(profile.skillDefinitions||{}).map(([id,skill])=>{const rank=profile.skills?.[id]||0;return `<article class="skill-card"><span>${icons[id]}</span><div><strong>${skill.name} · ${rank}/${skill.max}</strong><p>${skill.description}</p></div><div class="skill-actions"><button data-ability="${id}" ${rank<1?'disabled':''}>${active[id]}</button><button data-skill="${id}" ${(profile.skillPoints||0)<1||rank>=skill.max?'disabled':''}>Migliora</button></div><div class="skill-rank">${Array.from({length:skill.max},(_,index)=>`<i class="${index<rank?'active':''}"></i>`).join('')}</div></article>`}).join('');$$('[data-skill]').forEach(button=>button.onclick=()=>socket.emit('unlockSkill',button.dataset.skill));$$('[data-ability]').forEach(button=>button.onclick=()=>socket.emit('useAbility',button.dataset.ability))}
-
-function updateNavigation(now){
-  if(!camera||!profile)return;const quest=(profile.quests||[])[profile.questIndex||0],direction=$('#quest-direction');
-  if(quest){direction.classList.remove('hidden');direction.querySelector('b').textContent=quest.title;const marker=quest.marker;if(marker){const dx=marker.x-camera.position.x,dz=marker.z-camera.position.z,distance=Math.round(Math.hypot(dx,dz));const yaw=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ').y;const relative=Math.atan2(dx,dz)-yaw;direction.querySelector(':scope > span').textContent='▲';direction.querySelector(':scope > span').style.transform=`rotate(${relative}rad)`;direction.querySelector('em').textContent=`${distance} m`;}else{direction.querySelector(':scope > span').textContent='◆';direction.querySelector(':scope > span').style.transform='';direction.querySelector('em').textContent='MISSIONE';}}
-  else direction.classList.add('hidden');
-  if(now-lastMinimapUpdate<220)return;lastMinimapUpdate=now;drawMinimap();
-}
-
-function drawMinimap(){
-  const canvas=$('#minimap-canvas');if(!canvas||!camera)return;const ctx=canvas.getContext('2d'),size=canvas.width,center=size/2,scale=2.35,radius=34;ctx.clearRect(0,0,size,size);ctx.save();ctx.translate(center,center);const yaw=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ').y;ctx.rotate(yaw);
-  for(let dx=-radius;dx<=radius;dx+=2)for(let dz=-radius;dz<=radius;dz+=2){const wx=Math.round(camera.position.x+dx),wz=Math.round(camera.position.z+dz),h=terrainHeight(wx,wz),biome=biomeAt(wx,wz);ctx.fillStyle=h<=WATER_LEVEL?'#2d8294':BIOME_INFO[biome][1];ctx.fillRect(dx*scale-2,dz*scale-2,5,5)}
-  const dot=(x,z,color,r=3)=>{const dx=(x-camera.position.x)*scale,dz=(z-camera.position.z)*scale;if(Math.hypot(dx,dz)>center-5)return;ctx.fillStyle=color;ctx.beginPath();ctx.arc(dx,dz,r,0,Math.PI*2);ctx.fill()};
-  for(const model of remotePlayers.values())dot(model.position.x,model.position.z,'#6ac7ef',3);for(const model of mobs.values())dot(model.position.x,model.position.z,model.userData.boss?'#ff4360':'#e78663',model.userData.boss?5:2);for(const model of npcs.values())dot(model.position.x,model.position.z,'#6de1ad',3);
-  const found=new Set(profile.discoveredLandmarks||[]);for(const landmark of landmarks)if(found.has(landmark.id))dot(landmark.x,landmark.z,'#f1bf59',3);
-  const quest=(profile.quests||[])[profile.questIndex||0];if(quest?.marker)dot(quest.marker.x,quest.marker.z,'#fff19a',5);ctx.restore();ctx.fillStyle='#ffffff';ctx.beginPath();ctx.moveTo(center,center-7);ctx.lineTo(center-5,center+5);ctx.lineTo(center+5,center+5);ctx.closePath();ctx.fill();$('#minimap-coords').textContent=`${Math.round(camera.position.x)}, ${Math.round(camera.position.z)}`;$('#biome-label').textContent=BIOME_INFO[biomeAt(camera.position.x,camera.position.z)][0].toUpperCase();
-}
-function renderClans(){if(!profile)return;$('#clan-status').textContent=profile.clan?`Sei membro di ${profile.clan}. Il nome del clan appare sopra ogni compagno.`:'Crea una compagnia o unisciti a un clan esistente.';$('#clan-create').classList.toggle('hidden',Boolean(profile.clan));$('#leave-clan').classList.toggle('hidden',!profile.clan);$('#clan-list').innerHTML=clans.map(clan=>`<article class="clan-item"><strong>${clan.name}</strong><p>${clan.members.length}/12 membri · Leader ${clan.leader}</p>${!profile.clan?`<button data-join="${clan.name}">Unisciti</button>`:''}</article>`).join('')||'<p class="panel-copy">Non esistono ancora clan: puoi fondare il primo.</p>';$$('[data-join]').forEach(button=>button.onclick=()=>socket.emit('clanAction',{action:'join',name:button.dataset.join}))}
-
-function openPanel(id){panelOpen=true;cancelMining();controls?.unlock();$('#panel-scrim').classList.remove('hidden');$$('.game-panel').forEach(panel=>panel.classList.toggle('open',panel.id===id));$('#pause-overlay').classList.add('hidden');sound('ui')}
-function closePanels(){panelOpen=false;$('#panel-scrim').classList.add('hidden');$$('.game-panel').forEach(panel=>panel.classList.remove('open'));if(gameStarted&&!dead)controls.lock()}
-
-function roundedBlock(value){return Math.floor(value+.5)}
-function collidesAt(position) {
-  const minX=roundedBlock(position.x-.31),maxX=roundedBlock(position.x+.31),minZ=roundedBlock(position.z-.31),maxZ=roundedBlock(position.z+.31);
-  const minY=roundedBlock(position.y-EYE_HEIGHT+.05),maxY=roundedBlock(position.y+.08);
-  for(let x=minX;x<=maxX;x++)for(let y=minY;y<=maxY;y++)for(let z=minZ;z<=maxZ;z++)if(isSolid(getBlock(x,y,z)))return true;
-  return false;
-}
-function playerOnGround(){return collidesAt(new THREE.Vector3(camera.position.x,camera.position.y-.09,camera.position.z))}
-
-function updateMovement(dt) {
-  if(!controls.isLocked||dead)return;
-  if(mountedDragon){
-    camera.getWorldDirection(forward);forward.normalize();right.crossVectors(forward,camera.up).normalize();
-    moveDirection.set(0,0,0);if(keys.has('KeyW'))moveDirection.add(forward);if(keys.has('KeyS'))moveDirection.sub(forward);if(keys.has('KeyD'))moveDirection.add(right);if(keys.has('KeyA'))moveDirection.sub(right);if(keys.has('Space'))moveDirection.y+=1;if(keys.has('ShiftLeft')||keys.has('ShiftRight'))moveDirection.y-=1;
-    if(moveDirection.lengthSq())camera.position.addScaledVector(moveDirection.normalize(),14*dt);camera.position.y=THREE.MathUtils.clamp(camera.position.y,3,48);return;
-  }
-  camera.getWorldDirection(forward);forward.y=0;forward.normalize();right.crossVectors(forward,camera.up).normalize();moveDirection.set(0,0,0);
-  if(keys.has('KeyW'))moveDirection.add(forward);if(keys.has('KeyS'))moveDirection.sub(forward);if(keys.has('KeyD'))moveDirection.add(right);if(keys.has('KeyA'))moveDirection.sub(right);if(moveDirection.lengthSq())moveDirection.normalize();
-  const running=keys.has('ShiftLeft')||keys.has('ShiftRight'),skillSpeed=(1+(profile?.skills?.explorer||0)*.04)*(performance.now()<hasteUntil?1.35:1);const speed=(running?7.2:4.8)*skillSpeed;velocity.x=moveDirection.x*speed;velocity.z=moveDirection.z*speed;velocity.y-=22*dt;
-  if(keys.has('Space')&&playerOnGround()){velocity.y=8.1;keys.delete('Space')}
-  const next=camera.position.clone();next.x+=velocity.x*dt;if(!collidesAt(next))camera.position.x=next.x;
-  next.copy(camera.position);next.z+=velocity.z*dt;if(!collidesAt(next))camera.position.z=next.z;
-  next.copy(camera.position);next.y+=velocity.y*dt;if(!collidesAt(next))camera.position.y=next.y;else{if(velocity.y<0){while(!collidesAt(new THREE.Vector3(camera.position.x,camera.position.y-.02,camera.position.z)))camera.position.y-=.02}velocity.y=0}
-  if(camera.position.y<0){camera.position.set(spawn.x,spawn.y,spawn.z);velocity.set(0,0,0)}
-}
-
-function findEntityRoot(object){let current=object;while(current){if(current.userData?.entityRoot)return current.userData.entityRoot;if(current.userData?.entityType)return current;current=current.parent}return null}
-function nearbyBlockMeshes(){const cx=Math.floor(camera.position.x/CHUNK_SIZE),cz=Math.floor(camera.position.z/CHUNK_SIZE),result=[];for(let x=cx-1;x<=cx+1;x++)for(let z=cz-1;z<=cz+1;z++){const group=loadedChunks.get(chunkKey(x,z));if(group)result.push(...(group.userData.blockMeshes||[]).filter(mesh=>mesh.userData.blockType!=='water'))}return result}
-function updateTarget() {
-  if(!worldReady||!controls.isLocked)return;
-  raycaster.setFromCamera(new THREE.Vector2(0,0),camera);
-  const blockHits=raycaster.intersectObjects(nearbyBlockMeshes(),false);const entityHits=raycaster.intersectObjects([...mobs.values(),...dragons.values(),...lootBoxes.values(),...itemDrops.values(),...npcs.values(),...chests.values()],true);
-  const blockHit=blockHits[0];const entityHit=entityHits.find(hit=>findEntityRoot(hit.object));
-  if(entityHit&&(!blockHit||entityHit.distance<blockHit.distance)){
-    const root=findEntityRoot(entityHit.object);currentTarget={kind:root.userData.entityType,id:root.userData.id,distance:entityHit.distance,owner:root.userData.owner,item:root.userData.item,name:root.userData.name,claimed:root.userData.claimed};selectionBox.visible=false;
-    $('#target-label').textContent=root.userData.entityType==='mob'?MOB_LABELS[root.userData.kind]:root.userData.entityType==='dragon'?'Drago cavalcabile':root.userData.entityType==='lootBox'?`Box di ${root.userData.owner}`:root.userData.entityType==='npc'?root.userData.name:root.userData.entityType==='chest'?root.userData.name:itemName(root.userData.item);return;
-  }
-  if(blockHit&&blockHit.instanceId!==undefined){const position=blockHit.object.userData.positions[blockHit.instanceId];currentTarget={kind:'block',position,type:blockHit.object.userData.blockType,normal:blockHit.face.normal.clone(),distance:blockHit.distance};selectionBox.position.set(position.x,position.y,position.z);selectionBox.visible=true;$('#target-label').textContent=itemName(currentTarget.type);return}
-  currentTarget=null;selectionBox.visible=false;$('#target-label').textContent='';
-}
-
-function onMouseAction(event) {
-  if(!controls?.isLocked||dead)return;
-  const now=performance.now();if(now-lastAction<170)return;lastAction=now;
-  if(event.button===0&&currentTarget){
-    if(currentTarget.kind==='mob'){socket.emit('attack',{id:currentTarget.id,held:selectedItem()});swingEffect();sound('attack')}
-    else if(currentTarget.kind==='block')startMining(currentTarget)
-  } else if(event.button===2&&currentTarget?.kind==='block'){
-    const type=selectedItem();
-    const p=currentTarget.position,n=currentTarget.normal;const position={x:p.x+Math.round(n.x),y:p.y+Math.round(n.y),z:p.z+Math.round(n.z)};
-    if(type==='lootBox'){socket.emit('dropLootBox',position);return}
-    if(!PLACEABLE.has(type)){toast('Seleziona un materiale da costruzione.','danger');return}
-    if(Math.hypot(position.x-camera.position.x,position.z-camera.position.z)<.8&&Math.abs(position.y-(camera.position.y-EYE_HEIGHT))<1.8)return;
-    socket.emit('place',{...position,type});
-  }
-}
-
-function miningDuration(type) {
-  const held=selectedItem();const hard=['stone','coal','iron','gold','crystal','obsidian','redstone','piston'].includes(type);
-  let duration=hard?900:420;if(held==='woodPickaxe')duration*=.78;if(held==='stonePickaxe')duration*=.58;if(held==='ironPickaxe')duration*=.38;duration*=1-(profile?.skills?.miner||0)*.07;return Math.max(180,duration);
-}
-function startMining(target){
-  const key=keyOf(target.position.x,target.position.y,target.position.z);if(miningAction?.key===key)return;
-  cancelMining();miningAction={key,position:{...target.position},type:target.type,started:performance.now(),duration:miningDuration(target.type)};
-  crackBox.position.set(target.position.x,target.position.y,target.position.z);crackBox.visible=true;$('#mining-progress').classList.remove('hidden');swingEffect();sound('mine');
-}
-function cancelMining(){miningAction=null;if(crackBox){crackBox.visible=false;crackBox.material.opacity=0}$('#mining-progress')?.classList.add('hidden')}
-function updateMining(now){
-  if(!miningAction)return;const progress=Math.min(1,(now-miningAction.started)/miningAction.duration);crackBox.material.opacity=.18+progress*.58;crackBox.rotation.set(progress*.7,progress*.9,0);$('#mining-progress i').style.width=`${progress*100}%`;viewModelSwing=Math.max(viewModelSwing,Math.sin(progress*Math.PI*3)*.75);
-  if(progress>=1){const action=miningAction;cancelMining();socket.emit('mine',{...action.position,block:action.type});burst(action.position,ITEM_INFO[action.type]?.[1]||'#888');sound('break')}
-}
-function swingEffect(){viewModelSwing=1}
-function updateViewModel(dt,elapsed){
-  if(!viewModel)return;viewModelSwing=Math.max(0,viewModelSwing-dt*4.8);const moving=keys.has('KeyW')||keys.has('KeyA')||keys.has('KeyS')||keys.has('KeyD');const bob=settings.bob&&moving?Math.sin(elapsed*10)*.025:0;const swing=Math.sin(viewModelSwing*Math.PI);
-  viewModel.position.set(.56+bob*.5,-.48+Math.abs(bob),-.82);viewModel.rotation.set(-.18-swing*1.05,-.28,-.08+swing*.32);
-}
-const particles=[];
-function burst(position,color){for(let i=0;i<7;i++){const mesh=new THREE.Mesh(new THREE.BoxGeometry(.09,.09,.09),new THREE.MeshBasicMaterial({color}));mesh.position.set(position.x+(Math.random()-.5),position.y+(Math.random()-.5),position.z+(Math.random()-.5));mesh.userData.velocity=new THREE.Vector3((Math.random()-.5)*2,Math.random()*2,(Math.random()-.5)*2);mesh.userData.life=.7;scene.add(mesh);particles.push(mesh)}}
-
-function animateEntities(dt,elapsed){
-  for(const model of remotePlayers.values()){model.position.lerp(model.userData.target,Math.min(1,dt*12));model.rotation.y=THREE.MathUtils.lerp(model.rotation.y,model.userData.targetYaw||0,dt*8);const moving=model.position.distanceTo(model.userData.target)>.02;const swing=moving?Math.sin(elapsed*9)*.55:0;model.userData.leftArm.rotation.x=swing;model.userData.rightArm.rotation.x=-swing;model.userData.leftLeg.rotation.x=-swing;model.userData.rightLeg.rotation.x=swing}
-  for(const model of mobs.values()){model.position.lerp(model.userData.target,Math.min(1,dt*9));model.rotation.y=THREE.MathUtils.lerp(model.rotation.y,model.userData.targetYaw||0,dt*7);model.position.y+=Math.sin(elapsed*5+model.position.x)*.002;if(model.userData.kind==='slime')model.scale.y=.92+Math.sin(elapsed*6+model.position.z)*.09}
-  nearbyDragon=null;let nearDistance=5;
-  for(const model of dragons.values()){model.position.lerp(model.userData.target,Math.min(1,dt*8));model.rotation.y=THREE.MathUtils.lerp(model.rotation.y,model.userData.targetYaw||0,dt*6);const wing=Math.sin(elapsed*6)*.45;model.userData.leftWing.rotation.z=wing;model.userData.rightWing.rotation.z=-wing;const d=model.position.distanceTo(camera.position);if(d<nearDistance){nearDistance=d;nearbyDragon=model.userData.id}}
-  for(const model of lootBoxes.values()){model.position.lerp(model.userData.target,Math.min(1,dt*10));model.rotation.y=Math.sin(elapsed*.8)*.08}
-  for(const model of itemDrops.values()){model.position.lerp(model.userData.target,Math.min(1,dt*10));model.rotation.y+=dt*1.5;model.position.y=model.userData.target.y+Math.sin(elapsed*2.4+model.position.x)*.1}
-  for(const model of npcs.values()){model.rotation.y=Math.atan2(camera.position.x-model.position.x,camera.position.z-model.position.z);model.position.y=model.userData.target.y+Math.sin(elapsed*1.7+model.position.x)*.025}
-  for(const model of chests.values()){model.rotation.y=Math.sin(elapsed*.65+model.position.x)*.06}
-  let nearestBoss=null,bossDistance=36;for(const model of mobs.values())if(model.userData.boss){const distance=model.position.distanceTo(camera.position);if(distance<bossDistance){bossDistance=distance;nearestBoss=model}}
-  const bossBar=$('#boss-bar');bossBar.classList.toggle('hidden',!nearestBoss);if(nearestBoss){bossBar.querySelector('strong').textContent=MOB_LABELS[nearestBoss.userData.kind];bossBar.querySelector('em').textContent=`${Math.max(0,Math.ceil(nearestBoss.userData.hp))} / ${nearestBoss.userData.maxHp}`;bossBar.querySelector(':scope > i').style.transform=`scaleX(${Math.max(0,nearestBoss.userData.hp/nearestBoss.userData.maxHp)})`}
-  let interaction='';if(currentTarget?.kind==='lootBox')interaction=currentTarget.owner===profile?.name?'Recupera tutti i tuoi oggetti':`Raccogli il box di ${currentTarget.owner}`;else if(currentTarget?.kind==='itemDrop')interaction=`Raccogli ${itemName(currentTarget.item)}`;else if(currentTarget?.kind==='npc')interaction=`Parla con ${currentTarget.name}`;else if(currentTarget?.kind==='chest')interaction=currentTarget.claimed?'Tesoro già raccolto':'Apri il tesoro';else if(currentTarget?.kind==='block'&&currentTarget.type==='lever')interaction='Aziona la leva';else if(mountedDragon)interaction='Scendi dal drago';else if(nearbyDragon)interaction='Cavalca il drago';
-  $('#interaction-hint').classList.toggle('hidden',!interaction);if(interaction)$('#interaction-hint span').textContent=interaction;
-  for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.userData.life-=dt;p.userData.velocity.y-=4*dt;p.position.addScaledVector(p.userData.velocity,dt);p.scale.setScalar(Math.max(0,p.userData.life));if(p.userData.life<=0){scene.remove(p);p.geometry.dispose();p.material.dispose();particles.splice(i,1)}}
-}
-
-function updateSky() {
-  const angle=worldDay*Math.PI*2;const elevation=Math.sin(angle);const daylight=THREE.MathUtils.clamp(elevation*.8+.35,.08,1);
-  sun.position.set(Math.cos(angle)*55,Math.max(-10,elevation*55),Math.sin(angle)*35);sun.intensity=daylight*2.6;hemiLight.intensity=.2+daylight*1.35;
-  const night=new THREE.Color(0x07101f),day=new THREE.Color(0x87bfd3),sunset=new THREE.Color(0xc8795c);const sky=night.clone().lerp(day,daylight);if(daylight>.15&&daylight<.55)sky.lerp(sunset,.28);scene.background.copy(sky);scene.fog.color.copy(sky);stars.material.opacity=1-daylight;
-  const skyCenter=camera.position;skyDome.position.copy(skyCenter);stars.position.copy(skyCenter);skyDome.material.uniforms.nightMix.value=1-daylight;
-  const solarDirection=new THREE.Vector3(Math.cos(angle),elevation,Math.sin(angle)*.65).normalize();sunDisc.position.copy(skyCenter).addScaledVector(solarDirection,125);moonDisc.position.copy(skyCenter).addScaledVector(solarDirection,-125);sunDisc.visible=elevation>-.18;moonDisc.visible=elevation<.25;
-  const isNight=daylight<.28;$('#day-icon').textContent=isNight?'☾':'☀';$('#day-label').textContent=isNight?'NOTTE':worldDay<.5?'GIORNO':'TRAMONTO';
-}
-
-function emitMovement(now) {
-  if(!self||now-lastMoveSent<80)return;lastMoveSent=now;const euler=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ');socket.emit('move',{x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw:euler.y,pitch:euler.x});
-}
-function animate(now=0) {
-  requestAnimationFrame(animate);if(!scene)return;const dt=Math.min(clock.getDelta(),.05),elapsed=clock.elapsedTime;updateMovement(dt);updateTarget();updateMining(now);updateViewModel(dt,elapsed);animateEntities(dt,elapsed);updateSky();updateNavigation(now);
-  const currentChunkX=Math.floor(camera.position.x/CHUNK_SIZE),currentChunkZ=Math.floor(camera.position.z/CHUNK_SIZE);if(worldReady&&(currentChunkX!==renderedChunkX||currentChunkZ!==renderedChunkZ))scheduleWorldRebuild();
-  if(blockMaterials?.water?.uniforms)blockMaterials.water.uniforms.uTime.value=elapsed;
-  for(const cloud of clouds){cloud.position.x+=cloud.userData.speed*dt;if(cloud.position.x-camera.position.x>75)cloud.position.x-=150}
-  emitMovement(now);renderer.render(scene,camera);
-}
-
-function onResize(){if(!camera)return;camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)}
-function toast(text,type='info'){const element=document.createElement('div');element.className=`toast ${type}`;element.textContent=text;$('#toasts').appendChild(element);setTimeout(()=>element.remove(),4200)}
-function chatLine(data,system=false){const line=document.createElement('div');line.className=`chat-line ${system?'system':''}`;line.innerHTML=system?escapeHtml(data):`<b>${data.clan?`[${escapeHtml(data.clan)}] `:''}${escapeHtml(data.name)}</b>${escapeHtml(data.text)}`;$('#chat-log').appendChild(line);while($('#chat-log').children.length>6)$('#chat-log').firstChild.remove();setTimeout(()=>line.style.opacity=.25,9000)}
-function escapeHtml(text){const div=document.createElement('div');div.textContent=String(text);return div.innerHTML}
-
-function startGame(data) {
-  self=data.self;spawn=data.spawn;worldDay=data.worldDay;overrides=data.blocks||{};circuitPower=data.circuitPower||{};profile={...data.profile,quests:data.profile.quests||[]};recipes=data.recipes;shop=data.shop;clans=data.clans||[];landmarks=data.landmarks||[];
-  $('#loading-screen').classList.add('active');$('#login-screen').classList.remove('active');$('#loading-copy').textContent='Sto preparando foreste, miniere e creature…';
-  initThree();setTimeout(async()=>{await buildWorld();syncPlayers(data.players);syncMobs(data.monsters);syncDragons(data.dragons);syncLootBoxes(data.lootBoxes||[]);syncItemDrops(data.itemDrops||[]);syncNpcs(data.npcs||[]);syncChests(data.chests||[]);refreshProfile(profile);$('#loading-progress').style.width='100%';setTimeout(()=>{$('#loading-screen').classList.remove('active');$('#hud').classList.remove('hidden');gameStarted=true;controls.lock();toast('Benvenuto a Terranovaland. Parla con Elda o parti all’esplorazione!','quest');sound('quest')},350)},60);animate();
-}
-
-$('#login-form').addEventListener('submit',event=>{event.preventDefault();ensureAudio();sound('ui');const name=$('#player-name').value.trim();$('#login-error').textContent='';if(name.length<2){$('#login-error').textContent='Inserisci almeno 2 caratteri.';return}localStorage.setItem('terranovaland-name',name);socket.emit('login',{name})});
-$('#player-name').value=localStorage.getItem('terranovaland-name')||'';
-$('#chat-form').addEventListener('submit',event=>{event.preventDefault();const input=$('#chat-input');if(input.value.trim())socket.emit('chat',input.value);input.value='';$('#chat-form').classList.add('hidden');controls.lock()});
-$('#clan-create').addEventListener('submit',event=>{event.preventDefault();const input=event.currentTarget.querySelector('input');if(input.value.trim())socket.emit('clanAction',{action:'create',name:input.value});input.value=''});
-$('#leave-clan').onclick=()=>socket.emit('clanAction',{action:'leave'});
-$$('[data-panel]').forEach(button=>button.onclick=()=>openPanel(button.dataset.panel));$$('.panel-close').forEach(button=>button.onclick=closePanels);$('#panel-scrim').onclick=closePanels;
-$('#resume-button').onclick=()=>controls.lock();$('#settings-button').onclick=()=>openPanel('settings-panel');$('#help-button').onclick=()=>{controls.unlock();$('#help-overlay').classList.remove('hidden');$('#pause-overlay').classList.add('hidden')};$('#help-overlay .modal-x').onclick=()=>{$('#help-overlay').classList.add('hidden');controls.lock()};$('#respawn-button').onclick=()=>socket.emit('respawn');
-function closeNpcDialogue(){$('#npc-overlay').classList.add('hidden');if(gameStarted&&!dead)controls.lock()}
-function showNpcDialogue(data){controls.unlock();$('#pause-overlay').classList.add('hidden');$('#npc-name').textContent=data.npc.name;$('#npc-role').textContent=data.npc.role.toUpperCase();$('#npc-text').textContent=data.text;const quest=$('#npc-quest');quest.classList.toggle('hidden',!data.quest);if(data.quest)quest.innerHTML=`<b>${escapeHtml(data.quest.title)}</b><span>${escapeHtml(data.quest.description)}</span>`;$('#npc-overlay').classList.remove('hidden')}
-$('#npc-overlay .npc-close').onclick=closeNpcDialogue;$('#npc-continue').onclick=closeNpcDialogue;
-$('#toggle-quests').onclick=()=>{const quests=$('#quests');quests.classList.toggle('hidden');$('#toggle-quests').textContent=quests.classList.contains('hidden')?'+':'−'};
-
-for(const [selector,key,number] of [['#fov-setting','fov',true],['#sensitivity-setting','sensitivity',true],['#volume-setting','volume',true],['#quality-setting','quality',false],['#bob-setting','bob',false],['#ambient-setting','ambient',false]]){
-  $(selector).addEventListener('input',event=>{settings[key]=event.target.type==='checkbox'?event.target.checked:number?Number(event.target.value):event.target.value;ensureAudio();applySettings();});
-}
-$('#reset-settings').onclick=()=>{settings={...DEFAULT_SETTINGS};applySettings();toast('Impostazioni consigliate ripristinate')};
-applySettings(false);
-
-function openChat(){if(!gameStarted||dead)return;cancelMining();controls.unlock();$('#pause-overlay').classList.add('hidden');$('#chat-form').classList.remove('hidden');$('#chat-input').focus()}
-
-addEventListener('keydown',event=>{
-  if((event.code==='KeyT'||event.code==='Enter')&&gameStarted&&!dead&&document.activeElement!==$('#chat-input')){event.preventDefault();openChat();return}
-  if(['INPUT','SELECT'].includes(document.activeElement?.tagName))return;
-  if(event.code==='KeyQ'){socket.emit('useAbility','warrior');return}if(event.code==='KeyR'){socket.emit('useAbility','vitality');return}if(event.code==='KeyG'){socket.emit('useAbility','miner');return}if(event.code==='KeyV'){socket.emit('useAbility','explorer');return}
-  if(/^Digit[1-9]$/.test(event.code)){selectSlot(Number(event.code.slice(-1))-1);return}
-  if(event.code==='Tab'){event.preventDefault();$('#inventory-panel').classList.contains('open')?closePanels():openPanel('inventory-panel')}
-  else if(event.code==='KeyI')openPanel('inventory-panel');else if(event.code==='KeyC')openPanel('craft-panel');else if(event.code==='KeyM')openPanel('shop-panel');else if(event.code==='KeyL')openPanel('clan-panel');else if(event.code==='KeyO')openPanel('settings-panel');else if(event.code==='KeyP')openPanel('exploration-panel');else if(event.code==='KeyK')openPanel('skills-panel');else if(event.code==='KeyF')socket.emit('consume',profile?.inventory?.bread?'bread':'healingPotion');
-  else if(event.code==='KeyE'){
-    if(currentTarget?.kind==='lootBox')socket.emit('interactLootBox',currentTarget.id);else if(currentTarget?.kind==='itemDrop')socket.emit('pickupItem',currentTarget.id);else if(currentTarget?.kind==='npc')socket.emit('talkNpc',currentTarget.id);else if(currentTarget?.kind==='chest'&&!currentTarget.claimed)socket.emit('openChest',currentTarget.id);else if(currentTarget?.kind==='block'&&currentTarget.type==='lever')socket.emit('toggleCircuit',currentTarget.position);else if(mountedDragon||nearbyDragon)socket.emit('mountDragon',mountedDragon||nearbyDragon);
-  }else keys.add(event.code);
+$('#login-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const name = $('#player-name').value.trim();
+  $('#login-error').textContent = '';
+  ensureAudio(); playSound('click');
+  socket.emit('login', name);
 });
-addEventListener('keyup',event=>keys.delete(event.code));
-addEventListener('blur',()=>keys.clear());
-addEventListener('wheel',event=>{if(!gameStarted||panelOpen||dead)return;event.preventDefault();cycleHotbar(event.deltaY>0?1:-1)},{passive:false});
 
-socket.on('welcome',startGame);
-socket.on('loginError',message=>$('#login-error').textContent=message);
-socket.on('connect_error',()=>$('#login-error').textContent='Server non raggiungibile. Riprovo automaticamente…');
-socket.on('profile',next=>refreshProfile({...next,quests:next.quests||profile?.quests||[]}));
-socket.on('toast',data=>{toast(data.text,data.type);if(data.type==='quest')sound('quest');else if(data.type==='coin')sound('coin')});
-socket.on('blockChanged',data=>{overrides[keyOf(data.x,data.y,data.z)]=data.type;notifyWorkerBlock(data.x,data.y,data.z,data.type);scheduleWorldRebuild(data);if(data.by===profile?.name&&data.type!==0)sound('place')});
-socket.on('circuitState',next=>{circuitPower=next||{};notifyWorkerCircuits();scheduleWorldRebuild(null,true)});
-socket.on('leverChanged',data=>{sound('ui');if(data.by===profile?.name)toast(data.active?'Circuito alimentato':'Circuito disattivato')});
-socket.on('lootBoxes',syncLootBoxes);socket.on('itemDrops',syncItemDrops);
-socket.on('npcDialogue',showNpcDialogue);
-socket.on('chestOpened',data=>{const model=chests.get(data.id);if(model)model.userData.claimed=true;toast(`${data.name}: +${data.coins} monete e nuovi oggetti`,'quest');sound('quest')});
-socket.on('landmarkDiscovered',data=>{toast(`Luogo scoperto: ${data.name} · +${data.xp} XP · +${data.coins} monete`,'quest');sound('quest')});
-socket.on('lootDropped',data=>{toast(`Loot ${RARITY_LABEL[data.rarity]}: ${itemName(data.item)} ×${data.amount}`,'loot');sound('quest')});
-socket.on('questProgress',()=>renderQuests());socket.on('questUnlocked',quest=>{toast(`Nuova missione: ${quest.title}`,'quest');sound('quest')});socket.on('campaignComplete',()=>{toast('Campagna completata: sei l’Eroe di Terranovaland!','quest');sound('quest')});
-socket.on('playerJoined',player=>syncPlayers([...remotePlayers.values()].map(model=>({id:model.userData.id,x:model.position.x,y:model.position.y+EYE_HEIGHT,z:model.position.z,yaw:model.rotation.y,name:model.userData.name,clan:model.userData.clan})).concat(player,self)));
-socket.on('playerMoved',player=>{const model=remotePlayers.get(player.id);if(model){model.userData.target.set(player.x,player.y-EYE_HEIGHT,player.z);model.userData.targetYaw=player.yaw}});
-socket.on('playerLeft',id=>{const model=remotePlayers.get(id);if(model){entityGroup.remove(model);remotePlayers.delete(id)}$('#online-count').textContent=`${remotePlayers.size+1} esploratori online`});
-socket.on('playerClan',data=>{if(data.id===self?.id)self.clan=data.clan});
-socket.on('worldTick',data=>{worldDay=data.day;syncMobs(data.monsters);syncDragons(data.dragons)});
-socket.on('monsterHit',data=>{const model=mobs.get(data.id);if(model){model.userData.hp=data.hp;model.userData.hpBar.scale.x=Math.max(.001,data.hp/model.userData.maxHp);model.position.x+=(Math.random()-.5)*.25}});
-socket.on('monsterDefeated',data=>{const model=mobs.get(data.id);if(model){burst(model.position,'#e6a34d');entityGroup.remove(model);mobs.delete(data.id)}if(data.by===profile?.name)sound('coin')});
-socket.on('monsterSpawned',mob=>syncMobs([...mobs.values()].map(model=>({id:model.userData.id,kind:model.userData.kind,x:model.position.x,y:model.position.y+.55,z:model.position.z,hp:model.userData.maxHp,maxHp:model.userData.maxHp,yaw:model.rotation.y})).concat(mob)));
-socket.on('dragons',syncDragons);
-socket.on('dragonMounted',data=>{mountedDragon=data.id;sound('dragon');if(data.id)toast(`${data.name} ti ha accettato. Ora puoi volare!`,'quest');else toast('Sei sceso dal drago.')});
-socket.on('health',health=>{if(profile){profile.health=health;refreshProfile(profile)}});
-socket.on('mana',data=>{if(profile){profile.mana=data.mana;profile.maxMana=data.maxMana;$('#mana-text').textContent=`${Math.round(data.mana)}/${data.maxMana}`;$('#mana-bar').style.width=`${data.mana/data.maxMana*100}%`}});
-socket.on('abilityActivated',data=>{if(data.id==='explorer')hasteUntil=performance.now()+(data.duration||6000);toast({warrior:'Il prossimo colpo sarà potenziato.',vitality:'Impulso vitale attivato.',miner:'Il prossimo blocco darà risorse doppie.',explorer:'Passo del vento attivato.'}[data.id],'skill');sound('quest')});
-socket.on('playerDamaged',data=>{sound('hurt');const flash=$('#damage-flash');flash.classList.add('active');setTimeout(()=>flash.classList.remove('active'),120);toast(`${MOB_LABELS[data.source]||'Una creatura'} ti ha colpito: −${data.amount}`,'danger')});
-socket.on('playerDied',()=>{dead=true;cancelMining();sound('hurt');controls.unlock();$('#pause-overlay').classList.add('hidden');$('#death-overlay').classList.remove('hidden')});
-socket.on('respawned',data=>{dead=false;camera.position.set(data.x,data.y,data.z);velocity.set(0,0,0);$('#death-overlay').classList.add('hidden');controls.lock()});
-socket.on('clans',next=>{clans=next;renderClans()});
-socket.on('chat',data=>chatLine(data));socket.on('systemMessage',text=>chatLine(text,true));
+$('#quick-match').addEventListener('click', () => { playSound('click'); socket.emit('quickMatch'); });
+$('#cancel-queue').addEventListener('click', () => socket.emit('cancelQueue'));
+$('#create-room').addEventListener('click', () => { playSound('click'); socket.emit('createRoom'); });
+$('#join-room').addEventListener('click', () => {
+  const code = $('#room-code-input').value.trim().toUpperCase();
+  if (!code) return toast('Inserisci il codice della stanza.');
+  playSound('click'); socket.emit('joinRoom', code);
+});
+$('#room-code-input').addEventListener('input', event => { event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+$('#room-code-input').addEventListener('keydown', event => { if (event.key === 'Enter') $('#join-room').click(); });
+
+$$('#board [data-cell]').forEach(cell => cell.addEventListener('click', () => {
+  if (!roomState || roomState.turn !== roomState.ownSymbol) return;
+  socket.emit('move', Number(cell.dataset.cell));
+}));
+
+$('#leave-room').addEventListener('click', () => { socket.emit('leaveRoom'); returnToLobby(); });
+$('#rematch-button').addEventListener('click', () => {
+  if (rematchRequested) return;
+  rematchRequested = true; playSound('click'); socket.emit('rematch'); renderResult();
+});
+$('#copy-code').addEventListener('click', async () => {
+  if (!roomState?.code) return;
+  try { await navigator.clipboard.writeText(roomState.code); toast('Codice stanza copiato!'); }
+  catch { toast(`Codice stanza: ${roomState.code}`); }
+});
+$('#sound-toggle').addEventListener('click', () => {
+  soundEnabled = !soundEnabled;
+  localStorage.setItem('tris-sound', soundEnabled ? 'on' : 'off');
+  $('#sound-toggle').textContent = soundEnabled ? '♪' : '×';
+  $('#sound-toggle').setAttribute('aria-label', soundEnabled ? 'Disattiva suoni' : 'Attiva suoni');
+  if (soundEnabled) playSound('click');
+});
+
+socket.on('loggedIn', data => {
+  const wasReconnecting = reconnecting;
+  playerName = data.name;
+  localStorage.setItem('tris-player-name', playerName);
+  $('#player-label').textContent = playerName;
+  $('#login-error').textContent = '';
+  reconnecting = false;
+  if (wasReconnecting) { roomState = null; rematchRequested = false; toast('Connessione ripristinata. Puoi iniziare una nuova partita.'); }
+  showView('lobby-view');
+});
+socket.on('loginError', message => { $('#login-error').textContent = message; playSound('error'); });
+socket.on('actionError', message => { toast(message); playSound('error'); });
+socket.on('presence', data => { $('#online-count').textContent = data.online; });
+socket.on('queueState', data => {
+  queued = data.waiting;
+  $('#queue-overlay').classList.toggle('hidden', !queued);
+});
+socket.on('roomState', next => {
+  const previous = roomState;
+  roomState = next;
+  if (!previous || previous.round !== next.round) rematchRequested = false;
+  const changedIndex = previous?.board.findIndex((mark, index) => mark !== next.board[index]);
+  if (changedIndex >= 0 && next.board[changedIndex]) playSound(next.board[changedIndex] === 'X' ? 'moveX' : 'moveO');
+  const justWon = previous?.status === 'playing' && next.status === 'won';
+  renderRoom();
+  if (justWon && next.winner === next.ownSymbol) confetti();
+});
+socket.on('gameMessage', data => {
+  if (data.tone === 'start') playSound('start');
+  if (data.tone === 'win') playSound('win');
+  if (data.tone === 'draw') playSound('draw');
+  if (['leave', 'wait'].includes(data.tone)) toast(data.text);
+});
+socket.on('disconnect', () => {
+  $('#queue-overlay').classList.add('hidden');
+  toast('Connessione interrotta. Riprovo automaticamente…');
+  reconnecting = Boolean(playerName);
+});
+socket.on('connect', () => {
+  if (reconnecting && playerName) socket.emit('login', playerName);
+});
+
+$('#player-name').value = localStorage.getItem('tris-player-name') || '';
+$('#sound-toggle').textContent = soundEnabled ? '♪' : '×';
