@@ -11,7 +11,7 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const SAVE_FILE = path.join(DATA_DIR, 'terranovaland.json');
-const WORLD_LIMIT = 512;
+const WORLD_LIMIT = 8192;
 const MAX_CHAT_LENGTH = 180;
 const PLAYER_SPEED_LIMIT = 25;
 const BLOCK_TYPES = new Set(['grass', 'dirt', 'stone', 'sand', 'wood', 'leaves', 'planks', 'brick', 'obsidian', 'crystal', 'coal', 'iron', 'gold', 'snow', 'torch', 'redstone', 'redstoneWire', 'lever', 'lamp', 'piston']);
@@ -110,7 +110,9 @@ const WORLD_CHESTS = [
   { id:'dungeon_heart',name:'Scrigno d’Ossidiana',x:-24,y:terrainHeight(-24,-24)-3.8,z:-24,loot:{coins:160,items:{crystal:4,redstone:8,healingPotion:2,ancientKey:1}} },
   { id:'corrupt_cache',name:'Reliquiario Corrotto',x:55,y:terrainHeight(55,-52)+1.1,z:-52,loot:{coins:220,items:{gold:6,crystal:5,dragonTreat:1}} },
   { id:'sunken_crypt_cache',name:'Tesoro della Cripta',x:72,y:terrainHeight(72,40)-3.8,z:40,loot:{coins:145,items:{crystal:3,healingPotion:2,swiftBoots:1}} },
-  { id:'ember_vault_cache',name:'Forziere delle Braci',x:-72,y:terrainHeight(-72,-40)-3.8,z:-40,loot:{coins:175,items:{gold:4,redstone:6,frostHelmet:1}} }
+  { id:'ember_vault_cache',name:'Forziere delle Braci',x:-72,y:terrainHeight(-72,-40)-3.8,z:-40,loot:{coins:175,items:{gold:4,redstone:6,frostHelmet:1}} },
+  { id:'celestial_cache',name:'Tesoro del Bastione Celeste',x:104,y:21.1,z:72,loot:{coins:210,items:{gold:5,crystal:6,swiftBoots:1}} },
+  { id:'storm_cache',name:'Tesoro delle Tempeste',x:-104,y:21.1,z:88,loot:{coins:240,items:{crystal:7,healingPotion:3,voidScale:1}} }
 ];
 
 const LANDMARKS = [
@@ -123,7 +125,9 @@ const LANDMARKS = [
   { id:'western_ruins',name:'Rovine dei Primi',type:'rovine',x:-40,z:8,radius:10,reward:{coins:32,xp:55} },
   { id:'corruption_peak',name:'Picco della Corruzione',type:'picco',x:58,z:-54,radius:12,reward:{coins:65,xp:90} },
   { id:'sunken_crypt',name:'Cripta Sommersa',type:'dungeon',x:72,z:40,radius:10,reward:{coins:48,xp:75} },
-  { id:'ember_vault',name:'Volta delle Braci',type:'dungeon',x:-72,z:-40,radius:10,reward:{coins:52,xp:80} }
+  { id:'ember_vault',name:'Volta delle Braci',type:'dungeon',x:-72,z:-40,radius:10,reward:{coins:52,xp:80} },
+  { id:'celestial_bastion',name:'Bastione Celeste',type:'dungeon sospeso',x:104,z:72,minY:18,radius:12,reward:{coins:75,xp:110} },
+  { id:'storm_citadel',name:'Cittadella delle Tempeste',type:'dungeon sospeso',x:-104,z:88,minY:18,radius:12,reward:{coins:80,xp:120} }
 ];
 
 const SKILLS = Object.freeze({
@@ -140,6 +144,7 @@ const LOOT_TABLES = Object.freeze({
   boar: [{item:'iron',weight:42},{item:'bread',weight:28,amount:2},{item:'gold',weight:8},{item:'swiftBoots',weight:1}],
   golem: [{item:'iron',weight:35,amount:2},{item:'gold',weight:24},{item:'redstone',weight:18,amount:2},{item:'frostHelmet',weight:2}],
   wraith: [{item:'crystal',weight:32},{item:'redstone',weight:28,amount:2},{item:'healingPotion',weight:10},{item:'ancientKey',weight:3}],
+  skySentinel: [{item:'crystal',weight:38,amount:2},{item:'gold',weight:28,amount:2},{item:'healingPotion',weight:16},{item:'voidScale',weight:2}],
   ancientGuardian: [{item:'guardianCore',weight:60},{item:'guardianBlade',weight:15},{item:'ancientKey',weight:25}],
   voidDragon: [{item:'voidScale',weight:55,amount:2},{item:'voidChestplate',weight:20},{item:'crystal',weight:25,amount:6}]
 });
@@ -189,6 +194,8 @@ function freshProfile(name) {
     coins: 35,
     health: 100,
     maxHealth: 100,
+    mana: 100,
+    maxMana: 100,
     level: 1,
     xp: 0,
     skillPoints: 0,
@@ -214,6 +221,8 @@ function publicProfile(profile) {
     coins: profile.coins,
     health: profile.health,
     maxHealth: profile.maxHealth,
+    mana: profile.mana,
+    maxMana: profile.maxMana,
     level: profile.level,
     xp: profile.xp,
     xpNext: 100 + profile.level * 75,
@@ -265,6 +274,7 @@ const MONSTER_KINDS = {
   boar: { hp: 42, damage: 8, speed: 1.65, coins: [8, 15], drop: 'iron' },
   golem: { hp: 75, damage: 12, speed: 0.66, coins: [16, 27], drop: 'gold' },
   wraith: { hp: 52, damage: 10, speed: 1.2, coins: [13, 22], drop: 'crystal' },
+  skySentinel: { hp: 105, damage: 14, speed: .72, coins: [28, 44], drop: 'crystal', sky: true, xp: 55 },
   ancientGuardian: { hp: 350, damage: 18, speed: .62, coins: [150, 200], drop: 'guardianCore', boss: true, xp: 280 },
   voidDragon: { hp: 600, damage: 23, speed: 1.08, coins: [300, 400], drop: 'voidScale', boss: true, xp: 540 }
 };
@@ -313,9 +323,16 @@ function spawnBoss(kind) {
   return monster;
 }
 
+function spawnSkySentinel(index = 0) {
+  const stats = MONSTER_KINDS.skySentinel;
+  const homes = [{ x:101,y:24,z:72 },{ x:107,y:24,z:75 },{ x:-101,y:24,z:88 },{ x:-107,y:24,z:85 }],position=homes[index%homes.length];
+  const monster={id:`sky_sentinel_${index}`,kind:'skySentinel',...position,homeY:position.y,hp:stats.hp,maxHp:stats.hp,yaw:0,target:null,lastAttack:0};monsters.set(monster.id,monster);return monster;
+}
+
 function ensurePopulation() {
-  const kinds = Object.keys(MONSTER_KINDS).filter(kind => !MONSTER_KINDS[kind].boss);
-  while ([...monsters.values()].filter(monster => !MONSTER_KINDS[monster.kind].boss).length < 20) spawnMonster(kinds[Math.floor(Math.random() * kinds.length)]);
+  const kinds = Object.keys(MONSTER_KINDS).filter(kind => !MONSTER_KINDS[kind].boss&&!MONSTER_KINDS[kind].sky);
+  while ([...monsters.values()].filter(monster => !MONSTER_KINDS[monster.kind].boss&&!MONSTER_KINDS[monster.kind].sky).length < 20) spawnMonster(kinds[Math.floor(Math.random() * kinds.length)]);
+  for(let index=0;index<4;index+=1)if(!monsters.has(`sky_sentinel_${index}`))spawnSkySentinel(index);
   for (const kind of ['ancientGuardian', 'voidDragon']) if (![...monsters.values()].some(monster => monster.kind === kind)) spawnBoss(kind);
   if (!dragons.size) {
     const dragonPositions = [{ x: 13, z: -15 }, { x: -22, z: 18 }];
@@ -458,6 +475,8 @@ function grantXp(socket, profile, amount) {
     profile.level += 1;
     profile.skillPoints = (profile.skillPoints || 0) + 1;
     profile.maxHealth = maxHealthFor(profile);
+    profile.maxMana = 100 + (profile.level - 1) * 4;
+    profile.mana = profile.maxMana;
     profile.health = profile.maxHealth;
     socket?.emit('toast', { type: 'level', text: `Livello ${profile.level}! Hai ottenuto 1 punto abilità.` });
     next = 100 + profile.level * 75;
@@ -518,6 +537,8 @@ io.on('connection', socket => {
     profile.carriedBoxes ||= [];
     profile.level ||= 1;
     profile.xp ||= 0;
+    profile.maxMana ||= 100 + (profile.level - 1) * 4;
+    profile.mana = Math.max(0, Math.min(profile.maxMana, Number.isFinite(profile.mana) ? profile.mana : profile.maxMana));
     profile.skillPoints ||= 0;
     profile.skills = { miner: 0, warrior: 0, vitality: 0, explorer: 0, ...(profile.skills || {}) };
     profile.maxHealth = maxHealthFor(profile);
@@ -576,7 +597,7 @@ io.on('connection', socket => {
     const profile = state.profiles[profileKey(player.name)];
     const quest = activeQuest(profile);
     if (quest?.event === 'visit' && quest.marker && Math.hypot(player.x - quest.marker.x, player.z - quest.marker.z) <= 8) advanceQuest(socket, profile, 'visit', quest.target);
-    const discovery = LANDMARKS.find(landmark => !profile.discoveredLandmarks.includes(landmark.id) && Math.hypot(player.x - landmark.x, player.z - landmark.z) <= landmark.radius);
+    const discovery = LANDMARKS.find(landmark => !profile.discoveredLandmarks.includes(landmark.id) && player.y >= (landmark.minY || -Infinity) && Math.hypot(player.x - landmark.x, player.z - landmark.z) <= landmark.radius);
     if (discovery) {
       profile.discoveredLandmarks.push(discovery.id);
       profile.stats.discoveries = profile.discoveredLandmarks.length;
@@ -611,7 +632,9 @@ io.on('connection', socket => {
     if (state.blocks[blockKey] === 0) return;
     state.blocks[blockKey] = 0;
     if (CIRCUIT_TYPES.has(block)) { delete state.levers[blockKey]; recalculateCircuits(); }
-    const miningAmount = Math.random() < (profile.skills.miner || 0) * .12 ? 2 : 1;
+    const boostedMining = Boolean(player.miningBoost);
+    const miningAmount = boostedMining || Math.random() < (profile.skills.miner || 0) * .12 ? 2 : 1;
+    player.miningBoost = false;
     addItems(profile, { [block]: miningAmount });
     if (miningAmount > 1) socket.emit('toast', { type: 'skill', text: `Minatore: hai estratto 2× ${block}.` });
     profile.stats.mined += 1;
@@ -654,6 +677,7 @@ io.on('connection', socket => {
     if (held === 'crystalSword' && profile.inventory.crystalSword) damage = 34;
     if (held === 'guardianBlade' && profile.inventory.guardianBlade) damage = 52;
     damage += Math.floor((profile.level - 1) * 1.5) + (profile.skills.warrior || 0) * 3;
+    if (player.powerStrike) { damage += 18 + (profile.skills.warrior || 0) * 6; player.powerStrike = false; }
     monster.hp -= damage;
     monster.target = player.id;
     io.emit('monsterHit', { id: monster.id, hp: monster.hp, damage, by: player.name });
@@ -677,7 +701,7 @@ io.on('connection', socket => {
       advanceQuest(socket, profile, 'kill', monster.kind);
       const respawnCenter = { x: player.x, z: player.z };
       const respawnDelay = stats.boss ? 180_000 : 5000;
-      setTimeout(() => { const next = stats.boss ? spawnBoss(monster.kind) : spawnMonster(monster.kind, respawnCenter); io.emit('monsterSpawned', next); }, respawnDelay);
+      setTimeout(() => { const next = stats.boss ? spawnBoss(monster.kind) : stats.sky ? spawnSkySentinel(Number(monster.id.split('_').at(-1)) || 0) : spawnMonster(monster.kind, respawnCenter); io.emit('monsterSpawned', next); }, respawnDelay);
       sendProfile(socket, profile);
       persistSoon();
     }
@@ -744,6 +768,37 @@ io.on('connection', socket => {
       if (player) player.health = profile.health;
     }
     sendProfile(socket, profile, `${definition.name} migliorata al grado ${profile.skills[skillId]}`);
+    persistSoon();
+  });
+
+  socket.on('useAbility', abilityId => {
+    const profile = key && state.profiles[key];
+    const player = players.get(socket.id);
+    abilityId = cleanText(abilityId, 20);
+    if (!profile || !player || profile.health <= 0) return;
+    const definitions = {
+      warrior: { cost: 25, required: 'warrior', cooldown: 3000 },
+      vitality: { cost: 35, required: 'vitality', cooldown: 10000 },
+      miner: { cost: 20, required: 'miner', cooldown: 2500 },
+      explorer: { cost: 25, required: 'explorer', cooldown: 8000 }
+    };
+    const ability = definitions[abilityId];
+    const now = Date.now();
+    player.abilityCooldowns ||= {};
+    if (!ability || !(profile.skills[ability.required] > 0) || profile.mana < ability.cost || now < (player.abilityCooldowns[abilityId] || 0)) return socket.emit('toast', { type:'danger', text:'Abilità non disponibile: controlla mana, grado e recupero.' });
+    profile.mana -= ability.cost;
+    player.abilityCooldowns[abilityId] = now + ability.cooldown;
+    if (abilityId === 'warrior') player.powerStrike = true;
+    if (abilityId === 'miner') player.miningBoost = true;
+    if (abilityId === 'explorer') player.hasteUntil = now + 6000;
+    if (abilityId === 'vitality') {
+      const recovered = 24 + profile.skills.vitality * 6;
+      profile.health = Math.min(profile.maxHealth, profile.health + recovered);
+      player.health = profile.health;
+      socket.emit('health', profile.health);
+    }
+    socket.emit('abilityActivated', { id: abilityId, duration: abilityId === 'explorer' ? 6000 : 0 });
+    sendProfile(socket, profile);
     persistSoon();
   });
 
@@ -971,14 +1026,15 @@ function updateWorld() {
   for (const monster of monsters.values()) {
     let closest = null;
     let closestDistance = 16;
+    const stats = MONSTER_KINDS[monster.kind];
     for (const player of players.values()) {
       const currentDistance = Math.hypot(player.x - monster.x, player.z - monster.z);
+      if (stats.sky && Math.abs(player.y - monster.y) > 6) continue;
       if (currentDistance < closestDistance && player.health > 0 && !player.mountedDragon) {
         closest = player;
         closestDistance = currentDistance;
       }
     }
-    const stats = MONSTER_KINDS[monster.kind];
     if (closest) {
       const angle = Math.atan2(closest.x - monster.x, closest.z - monster.z);
       monster.yaw = angle;
@@ -986,7 +1042,7 @@ function updateWorld() {
         monster.x += Math.sin(angle) * stats.speed * dt;
         monster.z += Math.cos(angle) * stats.speed * dt;
         const ground = terrainHeight(Math.round(monster.x), Math.round(monster.z));
-        monster.y = monster.kind === 'ancientGuardian' ? terrainHeight(-24, -24) - 3.8 : ground + (monster.kind === 'voidDragon' ? 5 + Math.sin(now / 650) * 1.2 : 1.1);
+        monster.y = monster.kind === 'ancientGuardian' ? terrainHeight(-24, -24) - 3.8 : stats.sky ? (monster.homeY || 24) + Math.sin(now / 700 + monster.x) * .45 : ground + (monster.kind === 'voidDragon' ? 5 + Math.sin(now / 650) * 1.2 : 1.1);
       } else if (now - monster.lastAttack > 1250) {
         monster.lastAttack = now;
         const profile = state.profiles[profileKey(closest.name)];
@@ -1016,19 +1072,26 @@ function updateWorld() {
   }
   for (const player of players.values()) {
     const profile = state.profiles[profileKey(player.name)];
-    if (!profile || player.health <= 0 || player.health >= profile.maxHealth || now - (player.lastDamagedAt || 0) < 8000 || now - (player.lastRegenAt || 0) < 2500) continue;
-    player.lastRegenAt = now;
-    const recovered = 2 + Math.floor((profile.skills?.vitality || 0) / 2);
-    player.health = Math.min(profile.maxHealth, player.health + recovered);
-    profile.health = player.health;
-    io.to(player.socketId).emit('health', player.health);
+    if (!profile || player.health <= 0) continue;
+    if (player.health < profile.maxHealth && now - (player.lastDamagedAt || 0) >= 8000 && now - (player.lastRegenAt || 0) >= 2500) {
+      player.lastRegenAt = now;
+      const recovered = 2 + Math.floor((profile.skills?.vitality || 0) / 2);
+      player.health = Math.min(profile.maxHealth, player.health + recovered);
+      profile.health = player.health;
+      io.to(player.socketId).emit('health', player.health);
+    }
+    if (profile.mana < profile.maxMana && now - (player.lastManaRegenAt || 0) >= 1800) {
+      player.lastManaRegenAt = now;
+      profile.mana = Math.min(profile.maxMana, profile.mana + 3);
+      io.to(player.socketId).emit('mana', { mana: profile.mana, maxMana: profile.maxMana });
+    }
   }
   if (now - lastMonsterBalance > 5000 && players.size) {
     lastMonsterBalance = now;
     for (const player of players.values()) {
       const nearby = [...monsters.values()].filter(monster => Math.hypot(monster.x - player.x, monster.z - player.z) < 34).length;
       if (nearby >= 3) continue;
-      const candidate = [...monsters.values()].find(monster => [...players.values()].every(other => Math.hypot(monster.x - other.x, monster.z - other.z) > 55));
+      const candidate = [...monsters.values()].find(monster => !MONSTER_KINDS[monster.kind].boss && !MONSTER_KINDS[monster.kind].sky && [...players.values()].every(other => Math.hypot(monster.x - other.x, monster.z - other.z) > 55));
       if (candidate) Object.assign(candidate, randomWorldPosition(12, player), { target: null });
     }
   }

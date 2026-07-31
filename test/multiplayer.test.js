@@ -21,13 +21,14 @@ test('un giocatore entra e riceve lo stato multiplayer completo', async t => {
   const payload = await welcome;
   assert.equal(payload.self.name, playerName);
   assert.deepEqual(payload.spawn, SPAWN);
-  assert.ok(payload.monsters.length >= 20);
+  assert.ok(payload.monsters.length >= 26);
   assert.ok(payload.dragons.length >= 2);
   assert.ok(payload.npcs.length >= 5);
-  assert.ok(payload.chests.length >= 5);
-  assert.ok(payload.landmarks.length >= 10);
+  assert.ok(payload.chests.length >= 7);
+  assert.ok(payload.landmarks.length >= 12);
   assert.equal(payload.profile.quests.length, 15);
   assert.equal(Object.keys(payload.profile.skillDefinitions).length, 4);
+  assert.equal(payload.profile.mana, payload.profile.maxMana);
   assert.ok(Object.keys(payload.recipes).length >= 12);
   assert.ok(Object.keys(payload.shop).length >= 5);
 

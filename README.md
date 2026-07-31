@@ -6,15 +6,15 @@ La difficoltà predefinita è **Avventura, medio-bassa**: i nemici richiedono at
 
 ## Cosa include
 
-- mondo 3D procedurale molto esteso, caricato a chunk, con sei biomi distinti, vegetazione dedicata, foreste, deserti, paludi, gelo, zone vulcaniche, fiumi, laghi, miniere e ciclo giorno/notte;
+- mondo 3D procedurale largo oltre 16 km, generato e caricato continuamente a chunk, con sei biomi distinti, vegetazione dedicata, foreste, deserti, paludi, gelo, zone vulcaniche, fiumi, laghi, miniere e ciclo giorno/notte;
 - multiplayer in tempo reale con nomi, chat, animazioni e spawn comune;
 - scavo, costruzione, collisioni, corsa, salto e nove slot rapidi;
 - 15 materiali, minerali rari, strumenti, armi, crafting e inventario;
 - quattro famiglie di nemici, due boss con barra vita, drop, IA, difficoltà e ricompense differenti;
 - campagna progressiva di 15 missioni, NPC con dialoghi, XP, livelli, tesori e ricompense uniche;
-- dieci luoghi da scoprire e tre dungeon esplorabili con tesori dedicati, diario, bussola e minimappa dinamica;
+- dodici luoghi da scoprire, tre dungeon sotterranei e due dungeon sospesi raggiungibili in drago, con tesori e sentinelle celesti;
 - loot fisico dei mostri con cinque rarità, oggetti rari ed equipaggiamento leggendario;
-- quattro abilità potenziabili — Minatore, Guerriero, Vitalità ed Esploratore — con punti ottenuti salendo di livello;
+- vita e mana con rigenerazione, quattro abilità potenziabili e poteri attivi — estrazione 2×, colpo potente, cura e passo del vento;
 - equipaggiamento indossabile, armatura, pozioni e mercato;
 - clan fino a 12 membri;
 - draghi condivisi che volano autonomamente e possono essere cavalcati;

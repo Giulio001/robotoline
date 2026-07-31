@@ -64,6 +64,8 @@ test('loot e abilità applicano rarità e bonus in modo deterministico', () => {
   assert.equal(maxHealthFor(profile), 130);
   assert.deepEqual(rollMonsterLoot('slime', 0, () => 0), { item: 'coal', amount: 1, rarity: 'common' });
   assert.equal(profile.skillPoints, 0);
+  assert.equal(profile.mana, 100);
+  assert.equal(profile.maxMana, 100);
 });
 
 test('i draghi senza cavaliere volano autonomamente', () => {

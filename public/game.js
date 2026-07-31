@@ -4,7 +4,7 @@ import { PointerLockControls } from '/vendor/PointerLockControls.js';
 const socket = window.io({ transports: ['websocket', 'polling'] });
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
-const WORLD_LIMIT = 512;
+const WORLD_LIMIT = 8192;
 const CHUNK_SIZE = 16;
 const WATER_LEVEL = 6;
 const EYE_HEIGHT = 1.65;
@@ -32,7 +32,7 @@ const ITEM_RARITY = { healingPotion:'uncommon',gold:'uncommon',crystal:'rare',an
 const RARITY_LABEL = { common:'Comune',uncommon:'Non comune',rare:'Raro',epic:'Epico',legendary:'Leggendario' };
 const BIOME_INFO = { meadow:['Praterie di Terranova','#4b8050'],forest:['Foresta Antica','#276343'],desert:['Deserto Dorato','#c6aa62'],swamp:['Paludi di Smeraldo','#476e52'],frost:['Distese del Gelo','#d6e7e8'],volcanic:['Terre delle Braci','#4a3741'] };
 const PLACEABLE = new Set(['grass', 'dirt', 'stone', 'sand', 'wood', 'leaves', 'planks', 'brick', 'obsidian', 'crystal', 'coal', 'iron', 'gold', 'redstone', 'redstoneWire', 'lever', 'lamp', 'piston', 'snow', 'torch']);
-const MOB_LABELS = { slime: 'Melma delle radici', boar: 'Cinghiale roccioso', golem: 'Golem antico', wraith: 'Spettro del crepuscolo', ancientGuardian: 'Guardiano Antico', voidDragon: 'Drago del Vuoto' };
+const MOB_LABELS = { slime: 'Melma delle radici', boar: 'Cinghiale roccioso', golem: 'Golem antico', wraith: 'Spettro del crepuscolo', skySentinel:'Sentinella Celeste', ancientGuardian: 'Guardiano Antico', voidDragon: 'Drago del Vuoto' };
 
 let scene, camera, renderer, controls, clock, sun, hemiLight, stars, skyDome, sunDisc, moonDisc;
 let worldGroup, entityGroup, dragonGroup, selectionBox, crackBox, viewModel;
@@ -67,6 +67,7 @@ let audioContext = null;
 let masterGain = null;
 let ambientTimer = null;
 let lastMinimapUpdate = 0;
+let hasteUntil = 0;
 const clouds = [];
 
 const remotePlayers = new Map();
@@ -117,6 +118,7 @@ function chunkFeature(chunkX, chunkZ) {
   else if (chunkX === -2 && chunkZ === -2) type = 'dungeon';
   else if (chunkX === 4 && chunkZ === 2) type = 'dungeon';
   else if (chunkX === -5 && chunkZ === -3) type = 'dungeon';
+  else if ((chunkX === 6 && chunkZ === 4) || (chunkX === -7 && chunkZ === 5)) type = 'skyDungeon';
   else if (chunkX === -3 && chunkZ === 0) type = 'ruin';
   else if (chunkX === -4 && chunkZ === 2) type = 'shrine';
   else if (chunkX === 3 && chunkZ === -4) type = 'tower';
@@ -125,10 +127,10 @@ function chunkFeature(chunkX, chunkZ) {
     if (chance < .7){chunkFeatureCache.set(cacheKey,null);return null}
     type = chance > .91 ? 'tower' : chance > .81 ? 'ruin' : 'shrine';
   }
-  const forcedCenter=chunkX===1&&chunkZ===1?{x:24,z:24}:chunkX===-2&&chunkZ===-2?{x:-24,z:-24}:chunkX===4&&chunkZ===2?{x:72,z:40}:chunkX===-5&&chunkZ===-3?{x:-72,z:-40}:null;
+  const forcedCenter=chunkX===1&&chunkZ===1?{x:24,z:24}:chunkX===-2&&chunkZ===-2?{x:-24,z:-24}:chunkX===4&&chunkZ===2?{x:72,z:40}:chunkX===-5&&chunkZ===-3?{x:-72,z:-40}:chunkX===6&&chunkZ===4?{x:104,z:72}:chunkX===-7&&chunkZ===5?{x:-104,z:88}:null;
   const x = forcedCenter?.x ?? chunkX * 16 + 8 + Math.floor((worldHash(chunkX, 11, chunkZ) - .5) * 4);
   const z = forcedCenter?.z ?? chunkZ * 16 + 8 + Math.floor((worldHash(chunkZ, 29, chunkX) - .5) * 4);
-  const feature={ type, x, z, base: terrainHeight(x, z) };chunkFeatureCache.set(cacheKey,feature);return feature;
+  const feature={ type, x, z, base:type==='skyDungeon'?22:terrainHeight(x, z) };chunkFeatureCache.set(cacheKey,feature);return feature;
 }
 
 function structurePart(feature, x, y, z) {
@@ -178,6 +180,15 @@ function structurePart(feature, x, y, z) {
     if(dx===0&&dz===0&&y===base+1)return{handled:true,type:'gold'};
     return{handled:true,type:null};
   }
+  if(feature.type==='skyDungeon'&&ax<=8&&az<=8&&y>=base-2&&y<=base+7){
+    if(y===base-2){if(ax<=5&&az<=5)return{handled:true,type:'obsidian'};if((ax<=8&&az<=2)||(az<=8&&ax<=2))return{handled:true,type:'stone'};return{handled:true,type:null}}
+    if(y===base-1&&ax<=6&&az<=6)return{handled:true,type:ax===6||az===6?'brick':null};
+    const gate=dz===-6&&ax<=1&&y<=base+2;if(gate)return{handled:true,type:null};
+    if((ax===6||az===6)&&y<=base+4)return{handled:true,type:(x+z+y)%4===0?'crystal':'brick'};
+    if((ax===3&&az===3)&&y<=base+6)return{handled:true,type:y===base+6?'gold':'obsidian'};
+    if(y===base+5&&(ax===6||az===6)&&(Math.abs(dx+dz)%2===0))return{handled:true,type:'lamp'};
+    return{handled:true,type:null};
+  }
   return{handled:false,type:null};
 }
 
@@ -190,7 +201,7 @@ function structureBlock(x,y,z){
 }
 
 function generatedBlock(x, y, z) {
-  if (Math.abs(x) > WORLD_LIMIT || Math.abs(z) > WORLD_LIMIT || y < 0 || y > 28) return null;
+  if (Math.abs(x) > WORLD_LIMIT || Math.abs(z) > WORLD_LIMIT || y < 0 || y > 32) return null;
   const structure=structureBlock(x,y,z);if(structure.handled)return structure.type;
   const height = terrainHeight(x, z);
   const biome=biomeAt(x,z);
@@ -470,7 +481,7 @@ function buildWorld() {
   types.forEach(type => positionsByType[type] = []);
   for (let x = startX; x <= endX; x++) {
     for (let z = startZ; z <= endZ; z++) {
-      const top = Math.max(terrainHeight(x, z) + 11, WATER_LEVEL + 1);
+      const top = Math.max(terrainHeight(x, z) + 11, WATER_LEVEL + 1, 30);
       for (let y = 0; y <= top; y++) {
         const type = getBlock(x, y, z);
         if (!type || !positionsByType[type]) continue;
@@ -551,6 +562,8 @@ function createMobModel(mob) {
   } else if (mob.kind === 'golem') {
     const stone=simpleMaterial(0x676f68);body=box(1.05,1.2,.6,stone);body.position.y=1.05;group.add(body);const head=box(.7,.65,.65,simpleMaterial(0x7e887d));head.position.y=1.95;group.add(head);
     for(const x of [-.73,.73]){const arm=box(.35,1.25,.4,stone);arm.position.set(x,1.02,0);group.add(arm)}
+  } else if(mob.kind==='skySentinel'){
+    const celestial=simpleMaterial(0x75a8bd,0x193f57);body=box(.9,1.25,.55,celestial);body.position.y=1.05;group.add(body);const head=box(.62,.58,.62,simpleMaterial(0xd5e9e7,0x345e67));head.position.y=1.95;group.add(head);for(const x of[-.7,.7]){const wing=box(.65,.12,1.05,simpleMaterial(0x9fd4d4,0x244f59));wing.position.set(x,1.35,.2);wing.rotation.z=x>0?.35:-.35;group.add(wing)}
   } else {
     const cloak = simpleMaterial(0x4d3a70, 0x1e0d35); body = box(.85,1.45,.45,cloak); body.position.y=1.05;group.add(body);const head=box(.58,.58,.58,simpleMaterial(0x9281bd,0x2b1748));head.position.y=1.92;group.add(head);
   }
@@ -652,7 +665,7 @@ function selectedItem(){return hotbarItems[selectedSlot]}
 
 function refreshProfile(next) {
   profile={...profile,...next};
-  const maxHealth=profile.maxHealth||100,xpNext=profile.xpNext||175;$('#coins').textContent=profile.coins;$('#health-text').textContent=`${profile.health}/${maxHealth}`;$('#health-bar').style.width=`${profile.health/maxHealth*100}%`;$('#level-badge').textContent=profile.level||1;$('#xp-text').textContent=`${profile.xp||0}/${xpNext}`;$('#xp-bar').style.width=`${(profile.xp||0)/xpNext*100}%`;
+  const maxHealth=profile.maxHealth||100,maxMana=profile.maxMana||100,xpNext=profile.xpNext||175;$('#coins').textContent=profile.coins;$('#health-text').textContent=`${profile.health}/${maxHealth}`;$('#health-bar').style.width=`${profile.health/maxHealth*100}%`;$('#mana-text').textContent=`${Math.round(profile.mana??maxMana)}/${maxMana}`;$('#mana-bar').style.width=`${(profile.mana??maxMana)/maxMana*100}%`;$('#level-badge').textContent=profile.level||1;$('#xp-text').textContent=`${profile.xp||0}/${xpNext}`;$('#xp-bar').style.width=`${(profile.xp||0)/xpNext*100}%`;
   $('#player-label').textContent=profile.name;$('#avatar-letter').textContent=profile.name[0].toUpperCase();$('#clan-label').textContent=profile.clan||'Senza clan';
   profile.health<=30?$('#health-bar').style.filter='brightness(1.35)':$('#health-bar').style.filter='';
   fillHotbar();updateHeldViewModel();renderInventory();renderQuests();renderExploration();renderSkills();renderCrafting();renderShop();renderClans();
@@ -694,7 +707,7 @@ function renderCrafting(){if(!profile)return;$('#recipe-list').innerHTML=Object.
 function renderShop(){if(!profile)return;$('#shop-list').innerHTML=Object.entries(shop).map(([id,product])=>`<article class="shop-item"><strong>${product.label}</strong><p class="cost">◈ ${product.price} monete</p><button data-buy="${id}" ${profile.coins>=product.price?'':'disabled'}>Acquista</button></article>`).join('');$$('[data-buy]').forEach(button=>button.onclick=()=>socket.emit('buy',button.dataset.buy))}
 function renderQuests(){if(!profile)return;const quests=profile.quests||[],quest=quests[profile.questIndex||0];if(!quest){$('#quests').innerHTML='<article class="quest done"><header><strong>Eroe di Terranovaland</strong><b>CAMPAGNA COMPLETA</b></header><p>Il Drago del Vuoto è caduto. Continua a esplorare, costruire e aiutare il tuo clan.</p></article>';return}const current=Math.min(profile.questProgress?.[quest.id]||0,quest.goal),reward=quest.reward||{};$('#quests').innerHTML=`<article class="quest"><header><strong>${profile.questIndex+1}. ${quest.title}</strong><b>${current} / ${quest.goal}</b></header><p>${quest.description}<br>Ricompensa: ◈ ${reward.coins||0} · ${reward.xp||0} XP</p><div class="bar"><i style="width:${current/quest.goal*100}%"></i></div><small class="explore-count">Luoghi scoperti: ${(profile.discoveredLandmarks||[]).length}/${profile.landmarkTotal||landmarks.length}</small></article>`}
 function renderExploration(){const found=new Set(profile?.discoveredLandmarks||[]);const list=$('#landmark-list');if(!list)return;list.innerHTML=landmarks.map(mark=>`<article class="landmark-item ${found.has(mark.id)?'found':''}"><span>${found.has(mark.id)?'◆':'?'}</span><div><strong>${found.has(mark.id)?mark.name:'Luogo inesplorato'}</strong><p>${found.has(mark.id)?`${mark.type} · coordinate ${mark.x}, ${mark.z}`:'Esplora il mondo per rivelarlo'}</p></div></article>`).join('')}
-function renderSkills(){if(!profile||!$('#skill-list'))return;const icons={miner:'⚒',warrior:'⚔',vitality:'♥',explorer:'⌖'};$('#skill-points').textContent=profile.skillPoints||0;$('#skill-list').innerHTML=Object.entries(profile.skillDefinitions||{}).map(([id,skill])=>{const rank=profile.skills?.[id]||0;return `<article class="skill-card"><span>${icons[id]}</span><div><strong>${skill.name} · ${rank}/${skill.max}</strong><p>${skill.description}</p></div><button data-skill="${id}" ${(profile.skillPoints||0)<1||rank>=skill.max?'disabled':''}>Migliora</button><div class="skill-rank">${Array.from({length:skill.max},(_,index)=>`<i class="${index<rank?'active':''}"></i>`).join('')}</div></article>`}).join('');$$('[data-skill]').forEach(button=>button.onclick=()=>socket.emit('unlockSkill',button.dataset.skill))}
+function renderSkills(){if(!profile||!$('#skill-list'))return;const icons={miner:'⚒',warrior:'⚔',vitality:'♥',explorer:'⌖'},active={miner:'Estrazione 2× · G',warrior:'Colpo potente · Q',vitality:'Cura · R',explorer:'Passo del vento · V'};$('#skill-points').textContent=profile.skillPoints||0;$('#skill-list').innerHTML=Object.entries(profile.skillDefinitions||{}).map(([id,skill])=>{const rank=profile.skills?.[id]||0;return `<article class="skill-card"><span>${icons[id]}</span><div><strong>${skill.name} · ${rank}/${skill.max}</strong><p>${skill.description}</p></div><div class="skill-actions"><button data-ability="${id}" ${rank<1?'disabled':''}>${active[id]}</button><button data-skill="${id}" ${(profile.skillPoints||0)<1||rank>=skill.max?'disabled':''}>Migliora</button></div><div class="skill-rank">${Array.from({length:skill.max},(_,index)=>`<i class="${index<rank?'active':''}"></i>`).join('')}</div></article>`}).join('');$$('[data-skill]').forEach(button=>button.onclick=()=>socket.emit('unlockSkill',button.dataset.skill));$$('[data-ability]').forEach(button=>button.onclick=()=>socket.emit('useAbility',button.dataset.ability))}
 
 function updateNavigation(now){
   if(!camera||!profile)return;const quest=(profile.quests||[])[profile.questIndex||0],direction=$('#quest-direction');
@@ -734,7 +747,7 @@ function updateMovement(dt) {
   }
   camera.getWorldDirection(forward);forward.y=0;forward.normalize();right.crossVectors(forward,camera.up).normalize();moveDirection.set(0,0,0);
   if(keys.has('KeyW'))moveDirection.add(forward);if(keys.has('KeyS'))moveDirection.sub(forward);if(keys.has('KeyD'))moveDirection.add(right);if(keys.has('KeyA'))moveDirection.sub(right);if(moveDirection.lengthSq())moveDirection.normalize();
-  const running=keys.has('ShiftLeft')||keys.has('ShiftRight'),skillSpeed=1+(profile?.skills?.explorer||0)*.04;const speed=(running?7.2:4.8)*skillSpeed;velocity.x=moveDirection.x*speed;velocity.z=moveDirection.z*speed;velocity.y-=22*dt;
+  const running=keys.has('ShiftLeft')||keys.has('ShiftRight'),skillSpeed=(1+(profile?.skills?.explorer||0)*.04)*(performance.now()<hasteUntil?1.35:1);const speed=(running?7.2:4.8)*skillSpeed;velocity.x=moveDirection.x*speed;velocity.z=moveDirection.z*speed;velocity.y-=22*dt;
   if(keys.has('Space')&&playerOnGround()){velocity.y=8.1;keys.delete('Space')}
   const next=camera.position.clone();next.x+=velocity.x*dt;if(!collidesAt(next))camera.position.x=next.x;
   next.copy(camera.position);next.z+=velocity.z*dt;if(!collidesAt(next))camera.position.z=next.z;
@@ -864,6 +877,7 @@ function openChat(){if(!gameStarted||dead)return;cancelMining();controls.unlock(
 addEventListener('keydown',event=>{
   if((event.code==='KeyT'||event.code==='Enter')&&gameStarted&&!dead&&document.activeElement!==$('#chat-input')){event.preventDefault();openChat();return}
   if(['INPUT','SELECT'].includes(document.activeElement?.tagName))return;
+  if(event.code==='KeyQ'){socket.emit('useAbility','warrior');return}if(event.code==='KeyR'){socket.emit('useAbility','vitality');return}if(event.code==='KeyG'){socket.emit('useAbility','miner');return}if(event.code==='KeyV'){socket.emit('useAbility','explorer');return}
   if(/^Digit[1-9]$/.test(event.code)){selectSlot(Number(event.code.slice(-1))-1);return}
   if(event.code==='Tab'){event.preventDefault();$('#inventory-panel').classList.contains('open')?closePanels():openPanel('inventory-panel')}
   else if(event.code==='KeyI')openPanel('inventory-panel');else if(event.code==='KeyC')openPanel('craft-panel');else if(event.code==='KeyM')openPanel('shop-panel');else if(event.code==='KeyL')openPanel('clan-panel');else if(event.code==='KeyO')openPanel('settings-panel');else if(event.code==='KeyP')openPanel('exploration-panel');else if(event.code==='KeyK')openPanel('skills-panel');else if(event.code==='KeyF')socket.emit('consume',profile?.inventory?.bread?'bread':'healingPotion');
@@ -900,6 +914,8 @@ socket.on('monsterSpawned',mob=>syncMobs([...mobs.values()].map(model=>({id:mode
 socket.on('dragons',syncDragons);
 socket.on('dragonMounted',data=>{mountedDragon=data.id;sound('dragon');if(data.id)toast(`${data.name} ti ha accettato. Ora puoi volare!`,'quest');else toast('Sei sceso dal drago.')});
 socket.on('health',health=>{if(profile){profile.health=health;refreshProfile(profile)}});
+socket.on('mana',data=>{if(profile){profile.mana=data.mana;profile.maxMana=data.maxMana;$('#mana-text').textContent=`${Math.round(data.mana)}/${data.maxMana}`;$('#mana-bar').style.width=`${data.mana/data.maxMana*100}%`}});
+socket.on('abilityActivated',data=>{if(data.id==='explorer')hasteUntil=performance.now()+(data.duration||6000);toast({warrior:'Il prossimo colpo sarà potenziato.',vitality:'Impulso vitale attivato.',miner:'Il prossimo blocco darà risorse doppie.',explorer:'Passo del vento attivato.'}[data.id],'skill');sound('quest')});
 socket.on('playerDamaged',data=>{sound('hurt');const flash=$('#damage-flash');flash.classList.add('active');setTimeout(()=>flash.classList.remove('active'),120);toast(`${MOB_LABELS[data.source]||'Una creatura'} ti ha colpito: −${data.amount}`,'danger')});
 socket.on('playerDied',()=>{dead=true;cancelMining();sound('hurt');controls.unlock();$('#pause-overlay').classList.add('hidden');$('#death-overlay').classList.remove('hidden')});
 socket.on('respawned',data=>{dead=false;camera.position.set(data.x,data.y,data.z);velocity.set(0,0,0);$('#death-overlay').classList.add('hidden');controls.lock()});
