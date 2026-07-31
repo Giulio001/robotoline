@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#101b21">
+  <meta name="description" content="Terranovaland, avventura voxel multiplayer nel browser">
+  <title>Terranovaland</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div id="game"></div>
+
+  <section id="login-screen" class="screen active">
+    <div class="aurora aurora-one"></div><div class="aurora aurora-two"></div>
+    <div class="login-card">
+      <div class="crest" aria-hidden="true"><span>◆</span></div>
+      <p class="eyebrow">UN MONDO CONDIVISO</p>
+      <h1>TERRANOVA<span>LAND</span></h1>
+      <p class="intro">Costruisci la tua fortezza, affronta le creature delle terre selvagge e conquista i cieli in groppa a un drago.</p>
+      <form id="login-form">
+        <label for="player-name">Come ti chiameranno gli esploratori?</label>
+        <div class="login-row">
+          <input id="player-name" maxlength="18" minlength="2" autocomplete="nickname" placeholder="Il tuo nome" required>
+          <button class="primary" type="submit">Entra nel mondo <span>→</span></button>
+        </div>
+        <p id="login-error" class="form-error" role="alert"></p>
+      </form>
+      <div class="feature-strip">
+        <div><b>∞</b><span>Mondo persistente</span></div>
+        <div><b>⚔</b><span>Avventura cooperativa</span></div>
+        <div><b>◈</b><span>Economia e clan</span></div>
+      </div>
+    </div>
+    <footer>Terranovaland · Creato per giocare insieme</footer>
+  </section>
+
+  <section id="loading-screen" class="screen">
+    <div class="loading-mark"><i></i><i></i><i></i></div>
+    <h2>Sto generando Terranovaland</h2>
+    <p id="loading-copy">Le montagne stanno prendendo forma…</p>
+    <div class="progress"><span id="loading-progress"></span></div>
+  </section>
+
+  <div id="hud" class="hidden">
+    <div id="vignette"></div>
+    <div id="damage-flash"></div>
+    <div id="crosshair"><span></span><span></span></div>
+    <div id="target-label"></div>
+
+    <header class="topbar">
+      <div class="brand-mini"><i>◆</i><span>TERRANOVA<strong>LAND</strong></span></div>
+      <div class="world-status">
+        <span id="day-icon">☀</span>
+        <div><small id="day-label">GIORNO</small><b id="online-count">1 esploratore online</b></div>
+      </div>
+      <div class="currency"><span>◈</span><b id="coins">0</b><small>MONETE</small></div>
+      <button id="help-button" class="icon-button" aria-label="Comandi">?</button>
+    </header>
+
+    <aside class="left-column">
+      <section class="hud-card player-card">
+        <div class="avatar" id="avatar-letter">T</div>
+        <div class="player-meta"><strong id="player-label">Esploratore</strong><span id="clan-label">Senza clan</span></div>
+        <div class="level-badge">I</div>
+        <div class="health-row"><span>♥</span><div class="bar"><i id="health-bar"></i></div><b id="health-text">100</b></div>
+      </section>
+
+      <section class="hud-card quest-card">
+        <div class="card-title"><span>MISSIONI ATTIVE</span><button id="toggle-quests">−</button></div>
+        <div id="quests"></div>
+      </section>
+    </aside>
+
+    <div id="interaction-hint" class="interaction-hint hidden"><kbd>E</kbd><span></span></div>
+
+    <section id="chat" class="chat-panel">
+      <div id="chat-log"></div>
+      <form id="chat-form" class="hidden"><input id="chat-input" maxlength="180" placeholder="Scrivi un messaggio…"><button>Invia</button></form>
+      <p>Premi <kbd>T</kbd> per parlare</p>
+    </section>
+
+    <nav id="hotbar" aria-label="Inventario rapido"></nav>
+
+    <div class="action-dock">
+      <button data-panel="inventory-panel"><span>▦</span>Inventario <kbd>I</kbd></button>
+      <button data-panel="craft-panel"><span>⚒</span>Crafting <kbd>C</kbd></button>
+      <button data-panel="shop-panel"><span>◈</span>Mercato <kbd>M</kbd></button>
+      <button data-panel="clan-panel"><span>♜</span>Clan <kbd>L</kbd></button>
+    </div>
+  </div>
+
+  <div id="panel-scrim" class="panel-scrim hidden"></div>
+  <aside id="inventory-panel" class="game-panel">
+    <button class="panel-close">×</button><p class="eyebrow">DOTAZIONE</p><h2>Inventario</h2>
+    <p class="panel-copy">Seleziona un materiale per aggiungerlo alla barra rapida.</p>
+    <div id="inventory-grid" class="item-grid"></div>
+  </aside>
+  <aside id="craft-panel" class="game-panel">
+    <button class="panel-close">×</button><p class="eyebrow">BANCO DA LAVORO</p><h2>Crafting</h2>
+    <p class="panel-copy">Trasforma le risorse raccolte in strumenti migliori.</p>
+    <div id="recipe-list" class="shop-list"></div>
+  </aside>
+  <aside id="shop-panel" class="game-panel">
+    <button class="panel-close">×</button><p class="eyebrow">EMPORIO DI AURALIS</p><h2>Mercato</h2>
+    <p class="panel-copy">Le creature sconfitte lasciano monete. Spendile con saggezza.</p>
+    <div id="shop-list" class="shop-list"></div>
+  </aside>
+  <aside id="clan-panel" class="game-panel">
+    <button class="panel-close">×</button><p class="eyebrow">GIOCARE INSIEME</p><h2>Clan</h2>
+    <p id="clan-status" class="panel-copy">Crea una compagnia o unisciti a un clan esistente.</p>
+    <form id="clan-create" class="inline-form"><input maxlength="20" placeholder="Nome del nuovo clan"><button class="primary">Crea</button></form>
+    <div id="clan-list" class="clan-list"></div>
+    <button id="leave-clan" class="danger hidden">Lascia il clan</button>
+  </aside>
+
+  <div id="pause-overlay" class="overlay hidden">
+    <div class="modal small-modal"><p class="eyebrow">TERRANOVALAND</p><h2>Avventura in pausa</h2><p>Clicca per tornare nel mondo.</p><button id="resume-button" class="primary">Riprendi</button></div>
+  </div>
+  <div id="help-overlay" class="overlay hidden">
+    <div class="modal help-modal"><button class="modal-x">×</button><p class="eyebrow">GUIDA RAPIDA</p><h2>Comandi</h2>
+      <div class="controls-grid">
+        <div><kbd>W A S D</kbd><span>Muoviti</span></div><div><kbd>Spazio</kbd><span>Salta / vola in alto</span></div>
+        <div><kbd>Shift</kbd><span>Corri / vola in basso</span></div><div><kbd>Click sx</kbd><span>Scava o attacca</span></div>
+        <div><kbd>Click dx</kbd><span>Posiziona blocco</span></div><div><kbd>E</kbd><span>Cavalca / scendi dal drago</span></div>
+        <div><kbd>F</kbd><span>Mangia il pane</span></div><div><kbd>1 — 9</kbd><span>Barra rapida</span></div>
+      </div><p class="tip">Suggerimento: crea presto un piccone. I minerali più preziosi si trovano sotto la superficie.</p>
+    </div>
+  </div>
+  <div id="death-overlay" class="overlay hidden"><div class="modal small-modal death"><span>☠</span><h2>Sei caduto</h2><p>Terranovaland offre sempre una seconda possibilità.</p><button id="respawn-button" class="primary">Rinasci alla piazza</button></div></div>
+  <div id="toasts" aria-live="polite"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/game.js"></script>
+</body>
+</html>

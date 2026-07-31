@@ -1,0 +1,16 @@
+services:
+  terranovaland:
+    build: .
+    container_name: terranovaland
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATA_DIR: /app/data
+    volumes:
+      - terranovaland_data:/app/data
+
+volumes:
+  terranovaland_data:
