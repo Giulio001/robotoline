@@ -11,10 +11,11 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const SAVE_FILE = path.join(DATA_DIR, 'terranovaland.json');
-const WORLD_LIMIT = 48;
+const WORLD_LIMIT = 512;
 const MAX_CHAT_LENGTH = 180;
 const PLAYER_SPEED_LIMIT = 25;
-const BLOCK_TYPES = new Set(['grass', 'dirt', 'stone', 'sand', 'wood', 'leaves', 'planks', 'brick', 'obsidian', 'crystal', 'coal', 'iron', 'gold', 'snow', 'torch']);
+const BLOCK_TYPES = new Set(['grass', 'dirt', 'stone', 'sand', 'wood', 'leaves', 'planks', 'brick', 'obsidian', 'crystal', 'coal', 'iron', 'gold', 'snow', 'torch', 'redstone', 'redstoneWire', 'lever', 'lamp', 'piston']);
+const CIRCUIT_TYPES = new Set(['redstoneWire', 'lever', 'lamp', 'piston']);
 
 const RECIPES = {
   planks: { label: 'Assi di quercia', cost: { wood: 1 }, gives: { planks: 4 } },
@@ -24,7 +25,11 @@ const RECIPES = {
   ironPickaxe: { label: 'Piccone di ferro', cost: { planks: 3, iron: 5 }, gives: { ironPickaxe: 1 } },
   crystalSword: { label: 'Spada di cristallo', cost: { planks: 2, crystal: 6, gold: 2 }, gives: { crystalSword: 1 } },
   brick: { label: 'Mattoni', cost: { stone: 2, coal: 1 }, gives: { brick: 3 } },
-  torch: { label: 'Torcia', cost: { wood: 1, coal: 1 }, gives: { torch: 4 } }
+  torch: { label: 'Torcia', cost: { wood: 1, coal: 1 }, gives: { torch: 4 } },
+  redstoneWire: { label: 'Circuito di pietrarossa', cost: { redstone: 1 }, gives: { redstoneWire: 4 } },
+  lever: { label: 'Leva', cost: { stone: 1, wood: 1 }, gives: { lever: 1 } },
+  lamp: { label: 'Lampada alimentata', cost: { redstone: 3, crystal: 1 }, gives: { lamp: 1 } },
+  piston: { label: 'Pistone', cost: { planks: 3, stone: 4, iron: 1, redstone: 1 }, gives: { piston: 1 } }
 };
 
 const SHOP = {
@@ -49,19 +54,26 @@ function terrainHeight(x, z) {
   const broad = Math.sin(x * 0.13) * 2.1 + Math.cos(z * 0.11) * 1.8;
   const detail = (fract(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) - 0.5) * 1.6;
   const spawnPlateau = Math.max(0, 1 - Math.hypot(x, z) / 8);
-  return Math.max(3, Math.min(15, Math.floor(7 + broad + detail + spawnPlateau * 2)));
+  let height = Math.max(3, Math.min(15, Math.floor(7 + broad + detail + spawnPlateau * 2)));
+  const river = Math.abs(x - (16 + Math.sin(z * .12) * 5));
+  const tributary = Math.abs(z - (-20 + Math.cos(x * .1) * 4));
+  if (river < 2.4) height = Math.min(height, 4 + Math.floor(river * .55));
+  if (tributary < 1.8 && x > 4) height = Math.min(height, 4 + Math.floor(tributary * .65));
+  const lakeDistance = Math.hypot(x + 13, z - 18);
+  if (lakeDistance < 6.5) height = Math.min(height, 4 + Math.floor(lakeDistance / 4));
+  return height;
 }
 
 const SPAWN = Object.freeze({ x: 0, y: terrainHeight(0, 0) + 2.2, z: 0 });
 
 function defaultState() {
-  return { version: 1, worldSeed: 'TERRANOVA-3107', blocks: {}, profiles: {}, clans: {}, worldDay: 0.28 };
+  return { version: 3, worldSeed: 'TERRANOVA-3107', blocks: {}, profiles: {}, clans: {}, lootBoxes: {}, itemDrops: {}, levers: {}, circuitPower: {}, worldDay: 0.28 };
 }
 
 function loadState() {
   try {
     const parsed = JSON.parse(fs.readFileSync(SAVE_FILE, 'utf8'));
-    return { ...defaultState(), ...parsed, blocks: parsed.blocks || {}, profiles: parsed.profiles || {}, clans: parsed.clans || {} };
+    return { ...defaultState(), ...parsed, blocks: parsed.blocks || {}, profiles: parsed.profiles || {}, clans: parsed.clans || {}, lootBoxes: parsed.lootBoxes || {}, itemDrops: parsed.itemDrops || {}, levers: parsed.levers || {}, circuitPower: parsed.circuitPower || {} };
   } catch (error) {
     if (error.code !== 'ENOENT') console.error('Salvataggio non leggibile, avvio un mondo nuovo:', error.message);
     return defaultState();
@@ -98,7 +110,9 @@ function freshProfile(name) {
     name,
     coins: 35,
     health: 100,
-    inventory: { grass: 12, dirt: 8, wood: 6, stone: 3, bread: 2 },
+    inventory: { grass: 12, dirt: 8, wood: 6, stone: 3, bread: 2, woodPickaxe: 1 },
+    starterGranted: true,
+    carriedBoxes: [],
     stats: { kills: 0, mined: 0, crafted: 0, deaths: 0 },
     claimedQuests: [],
     clan: null,
@@ -114,7 +128,8 @@ function publicProfile(profile) {
     inventory: profile.inventory,
     stats: profile.stats,
     claimedQuests: profile.claimedQuests,
-    clan: profile.clan
+    clan: profile.clan,
+    carriedBoxes: (profile.carriedBoxes || []).map(id => ({ id, owner: state.lootBoxes[id]?.owner || 'Sconosciuto' }))
   };
 }
 
@@ -148,19 +163,19 @@ const MONSTER_KINDS = {
   wraith: { hp: 58, damage: 13, speed: 1.35, coins: [11, 20], drop: 'crystal' }
 };
 
-function randomWorldPosition(minDistance = 10) {
+function randomWorldPosition(minDistance = 10, center = { x: 0, z: 0 }) {
   let x;
   let z;
   do {
-    x = Math.floor((Math.random() - 0.5) * (WORLD_LIMIT * 1.7));
-    z = Math.floor((Math.random() - 0.5) * (WORLD_LIMIT * 1.7));
-  } while (Math.hypot(x, z) < minDistance);
+    x = Math.max(-WORLD_LIMIT + 5, Math.min(WORLD_LIMIT - 5, Math.floor(center.x + (Math.random() - 0.5) * 72)));
+    z = Math.max(-WORLD_LIMIT + 5, Math.min(WORLD_LIMIT - 5, Math.floor(center.z + (Math.random() - 0.5) * 72)));
+  } while (Math.hypot(x - center.x, z - center.z) < minDistance);
   return { x, y: terrainHeight(x, z) + 1.1, z };
 }
 
-function spawnMonster(kind) {
+function spawnMonster(kind, center) {
   const stats = MONSTER_KINDS[kind];
-  const position = randomWorldPosition(9);
+  const position = randomWorldPosition(9, center);
   const monster = { id: randomId('mob'), kind, ...position, hp: stats.hp, maxHp: stats.hp, yaw: Math.random() * Math.PI * 2, target: null, lastAttack: 0 };
   monsters.set(monster.id, monster);
   return monster;
@@ -175,13 +190,93 @@ function ensurePopulation() {
       id: `dragon_${index + 1}`,
       name: index ? 'Nembofiamma' : 'Auralis',
       x: position.x,
-      y: terrainHeight(position.x, position.z) + 1.8,
+      y: terrainHeight(position.x, position.z) + 2.8,
       z: position.z,
       yaw: index * Math.PI,
-      rider: null
+      rider: null,
+      homeX: position.x,
+      homeZ: position.z,
+      phase: index * Math.PI,
+      speed: index ? 0.19 : 0.16,
+      flightRadius: index ? 12 : 9
     }));
   }
 }
+
+function updateDragonFlight(dragon, dt) {
+  if (dragon.rider) return dragon;
+  dragon.phase = (dragon.phase || 0) + dt * (dragon.speed || 0.16);
+  const radius = dragon.flightRadius || 10;
+  const homeX = Number.isFinite(dragon.homeX) ? dragon.homeX : dragon.x;
+  const homeZ = Number.isFinite(dragon.homeZ) ? dragon.homeZ : dragon.z;
+  const nextX = homeX + Math.cos(dragon.phase) * radius;
+  const nextZ = homeZ + Math.sin(dragon.phase * 0.82) * radius;
+  const ground = terrainHeight(Math.round(nextX), Math.round(nextZ));
+  const altitude = 2.4 + Math.abs(Math.sin(dragon.phase * 0.47)) * 9;
+  const targetY = ground + altitude;
+  dragon.yaw = Math.atan2(nextX - dragon.x, nextZ - dragon.z);
+  dragon.x = nextX;
+  dragon.z = nextZ;
+  dragon.y += (targetY - dragon.y) * Math.min(1, dt * 1.35);
+  dragon.flying = dragon.y > ground + 3.2;
+  return dragon;
+}
+
+function releaseDragon(dragon) {
+  if (!dragon) return;
+  dragon.rider = null;
+  dragon.homeX = dragon.x;
+  dragon.homeZ = dragon.z;
+  dragon.phase = 0;
+}
+
+function groundLootBoxes() {
+  return Object.values(state.lootBoxes).filter(box => !box.holder).map(box => ({ id: box.id, owner: box.owner, x: box.x, y: box.y, z: box.z, itemCount: Object.values(box.items || {}).reduce((sum, amount) => sum + amount, 0), coins: box.coins || 0 }));
+}
+
+function groundItemDrops() {
+  return Object.values(state.itemDrops);
+}
+
+function recalculateCircuits() {
+  const powered = {};
+  const queue = Object.entries(state.levers).filter(([, active]) => active).map(([key]) => key);
+  const visited = new Set();
+  while (queue.length) {
+    const current = queue.shift();
+    if (visited.has(current)) continue;
+    visited.add(current);
+    const currentType = state.blocks[current];
+    if (!CIRCUIT_TYPES.has(currentType)) continue;
+    powered[current] = true;
+    const [x, y, z] = current.split(',').map(Number);
+    for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]]) {
+      const neighbor = `${x + dx},${y + dy},${z + dz}`;
+      if (CIRCUIT_TYPES.has(state.blocks[neighbor]) && !visited.has(neighbor)) queue.push(neighbor);
+    }
+  }
+  state.circuitPower = powered;
+  io?.emit?.('circuitState', powered);
+  return powered;
+}
+
+function createDeathBox(player, profile) {
+  const position = { x: player.x, y: Math.max(1, player.y - EYE_HEIGHT_SAFE), z: player.z };
+  for (const [index, boxId] of (profile.carriedBoxes || []).entries()) {
+    const carried = state.lootBoxes[boxId];
+    if (carried) Object.assign(carried, position, { x: position.x + index * .35, holder: null });
+  }
+  const items = { ...profile.inventory };
+  delete items.lootBox;
+  const box = { id: randomId('loot'), owner: profile.name, ...position, items, coins: profile.coins || 0, holder: null, createdAt: Date.now() };
+  state.lootBoxes[box.id] = box;
+  profile.inventory = {};
+  profile.carriedBoxes = [];
+  profile.coins = 0;
+  return box;
+}
+
+const EYE_HEIGHT_SAFE = 1.65;
 
 ensurePopulation();
 
@@ -195,6 +290,7 @@ app.get('/{*splat}', (_req, res) => res.sendFile(path.join(__dirname, 'public', 
 
 const server = http.createServer(app);
 const io = new Server(server, { transports: ['websocket', 'polling'], maxHttpBufferSize: 100_000 });
+recalculateCircuits();
 
 function serializePlayers() {
   return [...players.values()].map(({ socketId, ...player }) => player);
@@ -241,6 +337,12 @@ io.on('connection', socket => {
 
     const profile = state.profiles[key] || freshProfile(name);
     profile.name = name;
+    profile.inventory ||= {};
+    profile.carriedBoxes ||= [];
+    if (!profile.starterGranted) {
+      if (!['woodPickaxe', 'stonePickaxe', 'ironPickaxe'].some(tool => profile.inventory[tool] > 0)) profile.inventory.woodPickaxe = 1;
+      profile.starterGranted = true;
+    }
     profile.health = Math.max(1, profile.health || 100);
     profile.lastSeen = Date.now();
     state.profiles[key] = profile;
@@ -256,6 +358,9 @@ io.on('connection', socket => {
       players: serializePlayers(),
       monsters: [...monsters.values()],
       dragons: [...dragons.values()],
+      lootBoxes: groundLootBoxes(),
+      itemDrops: groundItemDrops(),
+      circuitPower: state.circuitPower,
       clans: serializeClans(),
       profile: { ...publicProfile(profile), quests: QUESTS },
       recipes: RECIPES,
@@ -289,15 +394,16 @@ io.on('connection', socket => {
     const profile = key && state.profiles[key];
     const block = cleanText(data?.block, 16);
     const position = { x: Number(data?.x), y: Number(data?.y), z: Number(data?.z) };
-    if (!player || !profile || !BLOCK_TYPES.has(block) || !validCoordinate(position.x) || !validCoordinate(position.z) || !Number.isInteger(position.y) || position.y < 0 || position.y > 24) return;
+    if (!player || !profile || !BLOCK_TYPES.has(block) || !validCoordinate(position.x) || !validCoordinate(position.z) || !Number.isInteger(position.y) || position.y < 0 || position.y > 30) return;
     if (distance(player, position) > 7 || position.y === 0) return;
-    if (['stone', 'coal', 'iron', 'gold', 'crystal', 'obsidian'].includes(block)) {
+    if (['stone', 'coal', 'iron', 'gold', 'crystal', 'obsidian', 'redstone'].includes(block)) {
       const tools = ['woodPickaxe', 'stonePickaxe', 'ironPickaxe'];
       if (!tools.some(tool => profile.inventory[tool])) return socket.emit('toast', { type: 'danger', text: 'Ti serve un piccone per scavare questo materiale.' });
     }
     const blockKey = `${position.x},${position.y},${position.z}`;
     if (state.blocks[blockKey] === 0) return;
     state.blocks[blockKey] = 0;
+    if (CIRCUIT_TYPES.has(block)) { delete state.levers[blockKey]; recalculateCircuits(); }
     addItems(profile, { [block]: 1 });
     profile.stats.mined += 1;
     completeQuests(socket, profile);
@@ -312,10 +418,12 @@ io.on('connection', socket => {
     const type = cleanText(data?.type, 16);
     const position = { x: Number(data?.x), y: Number(data?.y), z: Number(data?.z) };
     if (!player || !profile || !BLOCK_TYPES.has(type) || !(profile.inventory[type] > 0)) return;
-    if (!validCoordinate(position.x) || !validCoordinate(position.z) || !Number.isInteger(position.y) || position.y < 1 || position.y > 24 || distance(player, position) > 7) return;
+    if (!validCoordinate(position.x) || !validCoordinate(position.z) || !Number.isInteger(position.y) || position.y < 1 || position.y > 30 || distance(player, position) > 7) return;
     if (Math.hypot(position.x - SPAWN.x, position.z - SPAWN.z) < 3.5) return socket.emit('toast', { type: 'danger', text: 'La piazza dello spawn è protetta.' });
     const blockKey = `${position.x},${position.y},${position.z}`;
     state.blocks[blockKey] = type;
+    if (type === 'lever') state.levers[blockKey] = false;
+    if (CIRCUIT_TYPES.has(type)) recalculateCircuits();
     removeItems(profile, { [type]: 1 });
     io.emit('blockChanged', { ...position, type, by: player.name });
     sendProfile(socket, profile);
@@ -346,7 +454,8 @@ io.on('connection', socket => {
       io.emit('monsterDefeated', { id: monster.id, by: player.name, coins: earned });
       socket.emit('toast', { type: 'coin', text: `Creatura sconfitta · +${earned} monete` });
       completeQuests(socket, profile);
-      setTimeout(() => { const next = spawnMonster(monster.kind); io.emit('monsterSpawned', next); }, 5000);
+      const respawnCenter = { x: player.x, z: player.z };
+      setTimeout(() => { const next = spawnMonster(monster.kind, respawnCenter); io.emit('monsterSpawned', next); }, 5000);
       sendProfile(socket, profile);
       persistSoon();
     }
@@ -388,6 +497,94 @@ io.on('connection', socket => {
     persistSoon();
   });
 
+  socket.on('toggleCircuit', data => {
+    const player = players.get(socket.id);
+    const position = { x: Number(data?.x), y: Number(data?.y), z: Number(data?.z) };
+    const blockKey = `${position.x},${position.y},${position.z}`;
+    if (!player || state.blocks[blockKey] !== 'lever' || distance(player, position) > 5) return;
+    state.levers[blockKey] = !state.levers[blockKey];
+    recalculateCircuits();
+    io.emit('leverChanged', { ...position, active: state.levers[blockKey], by: player.name });
+    persistSoon();
+  });
+
+  socket.on('interactLootBox', boxId => {
+    const player = players.get(socket.id);
+    const profile = key && state.profiles[key];
+    const box = state.lootBoxes[String(boxId)];
+    if (!player || !profile || !box || box.holder || distance(player, box) > 4) return;
+    if (profileKey(box.owner) === key) {
+      addItems(profile, box.items || {});
+      profile.coins += box.coins || 0;
+      delete state.lootBoxes[box.id];
+      socket.emit('toast', { type: 'quest', text: 'Hai recuperato tutto ciò che avevi perso.' });
+    } else {
+      box.holder = profile.name;
+      profile.carriedBoxes ||= [];
+      profile.carriedBoxes.push(box.id);
+      addItems(profile, { lootBox: 1 });
+      socket.emit('toast', { type: 'quest', text: `Hai raccolto il box di ${box.owner}. Riportaglielo!` });
+    }
+    sendProfile(socket, profile);
+    io.emit('lootBoxes', groundLootBoxes());
+    persistSoon();
+  });
+
+  socket.on('dropLootBox', data => {
+    const player = players.get(socket.id);
+    const profile = key && state.profiles[key];
+    const boxId = cleanText(data?.id || profile?.carriedBoxes?.[0], 40);
+    const box = state.lootBoxes[boxId];
+    const position = { x: Number(data?.x), y: Number(data?.y), z: Number(data?.z) };
+    if (!player || !profile || !box || box.holder !== profile.name || !Object.values(position).every(Number.isFinite) || distance(player, position) > 6) return;
+    Object.assign(box, position, { holder: null });
+    profile.carriedBoxes = (profile.carriedBoxes || []).filter(id => id !== boxId);
+    removeItems(profile, { lootBox: 1 });
+    sendProfile(socket, profile, `Box di ${box.owner} posato a terra`);
+    io.emit('lootBoxes', groundLootBoxes());
+    persistSoon();
+  });
+
+  socket.on('dropItem', data => {
+    const player = players.get(socket.id);
+    const profile = key && state.profiles[key];
+    const item = cleanText(data?.item, 32);
+    const position = { x: Number(data?.x), y: Number(data?.y), z: Number(data?.z) };
+    if (!player || !profile || item === 'lootBox' || !(profile.inventory[item] > 0) || !Object.values(position).every(Number.isFinite) || distance(player, position) > 6) return;
+    removeItems(profile, { [item]: 1 });
+    const drop = { id: randomId('item'), item, amount: 1, ...position, droppedBy: profile.name, createdAt: Date.now() };
+    state.itemDrops[drop.id] = drop;
+    sendProfile(socket, profile);
+    io.emit('itemDrops', groundItemDrops());
+    persistSoon();
+  });
+
+  socket.on('pickupItem', dropId => {
+    const player = players.get(socket.id);
+    const profile = key && state.profiles[key];
+    const drop = state.itemDrops[String(dropId)];
+    if (!player || !profile || !drop || distance(player, drop) > 4) return;
+    addItems(profile, { [drop.item]: drop.amount || 1 });
+    delete state.itemDrops[drop.id];
+    sendProfile(socket, profile, `${drop.item} raccolto`);
+    io.emit('itemDrops', groundItemDrops());
+    persistSoon();
+  });
+
+  socket.on('giftItem', data => {
+    const player = players.get(socket.id);
+    const profile = key && state.profiles[key];
+    const recipient = players.get(String(data?.targetId));
+    const item = cleanText(data?.item, 32);
+    if (!player || !profile || !recipient || item === 'lootBox' || !(profile.inventory[item] > 0) || distance(player, recipient) > 7) return socket.emit('toast', { type: 'danger', text: 'Il giocatore deve essere vicino per ricevere il regalo.' });
+    const recipientProfile = state.profiles[profileKey(recipient.name)];
+    if (!recipientProfile) return;
+    removeItems(profile, { [item]: 1 }); addItems(recipientProfile, { [item]: 1 });
+    sendProfile(socket, profile, `${item} regalato a ${recipient.name}`);
+    sendProfile(io.sockets.sockets.get(recipient.socketId), recipientProfile, `${profile.name} ti ha regalato: ${item}`);
+    persistSoon();
+  });
+
   socket.on('mountDragon', dragonId => {
     const profile = key && state.profiles[key];
     const player = players.get(socket.id);
@@ -395,7 +592,7 @@ io.on('connection', socket => {
     if (!profile || !player || !dragon) return;
     if (player.mountedDragon) {
       const current = dragons.get(player.mountedDragon);
-      if (current) current.rider = null;
+      releaseDragon(current);
       player.mountedDragon = null;
       socket.emit('dragonMounted', { id: null });
       io.emit('dragons', [...dragons.values()]);
@@ -471,7 +668,7 @@ io.on('connection', socket => {
     if (!player) return;
     if (player.mountedDragon) {
       const dragon = dragons.get(player.mountedDragon);
-      if (dragon) dragon.rider = null;
+      releaseDragon(dragon);
     }
     const profile = key && state.profiles[key];
     if (profile) {
@@ -486,6 +683,7 @@ io.on('connection', socket => {
 });
 
 let previousTick = Date.now();
+let lastMonsterBalance = 0;
 function updateWorld() {
   const now = Date.now();
   const dt = Math.min(0.1, (now - previousTick) / 1000);
@@ -519,6 +717,9 @@ function updateWorld() {
         io.to(closest.socketId).emit('playerDamaged', { amount: stats.damage, source: monster.kind });
         if (closest.health === 0 && profile) {
           profile.stats.deaths += 1;
+          createDeathBox(closest, profile);
+          sendProfile(io.sockets.sockets.get(closest.socketId), profile);
+          io.emit('lootBoxes', groundLootBoxes());
           io.to(closest.socketId).emit('playerDied');
           persistSoon();
         }
@@ -529,6 +730,16 @@ function updateWorld() {
       monster.z += Math.cos(monster.yaw) * stats.speed * 0.18 * dt;
     }
   }
+  if (now - lastMonsterBalance > 5000 && players.size) {
+    lastMonsterBalance = now;
+    for (const player of players.values()) {
+      const nearby = [...monsters.values()].filter(monster => Math.hypot(monster.x - player.x, monster.z - player.z) < 34).length;
+      if (nearby >= 3) continue;
+      const candidate = [...monsters.values()].find(monster => [...players.values()].every(other => Math.hypot(monster.x - other.x, monster.z - other.z) > 55));
+      if (candidate) Object.assign(candidate, randomWorldPosition(12, player), { target: null });
+    }
+  }
+  for (const dragon of dragons.values()) updateDragonFlight(dragon, dt);
   if (players.size) io.volatile.emit('worldTick', { day: state.worldDay, monsters: [...monsters.values()], dragons: [...dragons.values()] });
 }
 
@@ -557,4 +768,4 @@ if (require.main === module) {
   process.on('SIGTERM', shutdown);
 }
 
-module.exports = { server, terrainHeight, SPAWN, RECIPES, SHOP };
+module.exports = { server, terrainHeight, SPAWN, RECIPES, SHOP, freshProfile, updateDragonFlight, createDeathBox };

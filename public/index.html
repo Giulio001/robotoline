@@ -50,6 +50,7 @@
     <div id="damage-flash"></div>
     <div id="crosshair"><span></span><span></span></div>
     <div id="target-label"></div>
+    <div id="mining-progress" class="mining-progress hidden"><i></i></div>
 
     <header class="topbar">
       <div class="brand-mini"><i>◆</i><span>TERRANOVA<strong>LAND</strong></span></div>
@@ -58,6 +59,7 @@
         <div><small id="day-label">GIORNO</small><b id="online-count">1 esploratore online</b></div>
       </div>
       <div class="currency"><span>◈</span><b id="coins">0</b><small>MONETE</small></div>
+      <button id="settings-button" class="icon-button" aria-label="Impostazioni">⚙</button>
       <button id="help-button" class="icon-button" aria-label="Comandi">?</button>
     </header>
 
@@ -80,7 +82,7 @@
     <section id="chat" class="chat-panel">
       <div id="chat-log"></div>
       <form id="chat-form" class="hidden"><input id="chat-input" maxlength="180" placeholder="Scrivi un messaggio…"><button>Invia</button></form>
-      <p>Premi <kbd>T</kbd> per parlare</p>
+      <p>Premi <kbd>T</kbd> oppure <kbd>Invio</kbd> per parlare</p>
     </section>
 
     <nav id="hotbar" aria-label="Inventario rapido"></nav>
@@ -90,14 +92,16 @@
       <button data-panel="craft-panel"><span>⚒</span>Crafting <kbd>C</kbd></button>
       <button data-panel="shop-panel"><span>◈</span>Mercato <kbd>M</kbd></button>
       <button data-panel="clan-panel"><span>♜</span>Clan <kbd>L</kbd></button>
+      <button data-panel="settings-panel"><span>⚙</span>Impostazioni <kbd>O</kbd></button>
     </div>
   </div>
 
   <div id="panel-scrim" class="panel-scrim hidden"></div>
   <aside id="inventory-panel" class="game-panel">
-    <button class="panel-close">×</button><p class="eyebrow">DOTAZIONE</p><h2>Inventario</h2>
-    <p class="panel-copy">Seleziona un materiale per aggiungerlo alla barra rapida.</p>
+    <button class="panel-close">×</button><p class="eyebrow">LA TUA CASETTA · TAB</p><h2>Inventario</h2>
+    <p class="panel-copy">Click destro per indossare. Click sinistro per regalare o gettare un oggetto nel mondo.</p>
     <div id="inventory-grid" class="item-grid"></div>
+    <div id="inventory-actions" class="inventory-actions hidden"></div>
   </aside>
   <aside id="craft-panel" class="game-panel">
     <button class="panel-close">×</button><p class="eyebrow">BANCO DA LAVORO</p><h2>Crafting</h2>
@@ -116,6 +120,19 @@
     <div id="clan-list" class="clan-list"></div>
     <button id="leave-clan" class="danger hidden">Lascia il clan</button>
   </aside>
+  <aside id="settings-panel" class="game-panel">
+    <button class="panel-close">×</button><p class="eyebrow">ESPERIENZA DI GIOCO</p><h2>Impostazioni</h2>
+    <p class="panel-copy">Le preferenze vengono salvate automaticamente su questo browser.</p>
+    <div class="settings-list">
+      <label class="setting-row"><span><b>Campo visivo</b><small>Più ampio mostra una porzione maggiore del mondo.</small></span><output id="fov-output">88°</output><input id="fov-setting" type="range" min="70" max="105" step="1" value="88"></label>
+      <label class="setting-row"><span><b>Sensibilità visuale</b><small>Velocità del movimento della telecamera.</small></span><output id="sensitivity-output">1.0×</output><input id="sensitivity-setting" type="range" min="0.4" max="2" step="0.1" value="1"></label>
+      <label class="setting-row"><span><b>Volume effetti</b><small>Scavo, combattimento, raccolta e interfaccia.</small></span><output id="volume-output">70%</output><input id="volume-setting" type="range" min="0" max="100" step="5" value="70"></label>
+      <label class="setting-select"><span><b>Qualità grafica</b><small>Regola ombre, risoluzione e distanza visiva.</small></span><select id="quality-setting"><option value="low">Prestazioni</option><option value="medium">Bilanciata</option><option value="high" selected>Alta</option></select></label>
+      <label class="setting-toggle"><span><b>Oscillazione visuale</b><small>Movimento naturale mentre cammini e scavi.</small></span><input id="bob-setting" type="checkbox" checked><i></i></label>
+      <label class="setting-toggle"><span><b>Suoni ambientali</b><small>Vento, cielo e atmosfera del mondo.</small></span><input id="ambient-setting" type="checkbox" checked><i></i></label>
+    </div>
+    <button id="reset-settings" class="secondary-button">Ripristina impostazioni consigliate</button>
+  </aside>
 
   <div id="pause-overlay" class="overlay hidden">
     <div class="modal small-modal"><p class="eyebrow">TERRANOVALAND</p><h2>Avventura in pausa</h2><p>Clicca per tornare nel mondo.</p><button id="resume-button" class="primary">Riprendi</button></div>
@@ -127,6 +144,8 @@
         <div><kbd>Shift</kbd><span>Corri / vola in basso</span></div><div><kbd>Click sx</kbd><span>Scava o attacca</span></div>
         <div><kbd>Click dx</kbd><span>Posiziona blocco</span></div><div><kbd>E</kbd><span>Cavalca / scendi dal drago</span></div>
         <div><kbd>F</kbd><span>Mangia il pane</span></div><div><kbd>1 — 9</kbd><span>Barra rapida</span></div>
+        <div><kbd>Rotella</kbd><span>Cambia oggetto in mano</span></div><div><kbd>Tab</kbd><span>Inventario personale</span></div>
+        <div><kbd>T / Invio</kbd><span>Apri la chat</span></div><div><kbd>O</kbd><span>Impostazioni</span></div>
       </div><p class="tip">Suggerimento: crea presto un piccone. I minerali più preziosi si trovano sotto la superficie.</p>
     </div>
   </div>

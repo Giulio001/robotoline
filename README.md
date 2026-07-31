@@ -4,16 +4,21 @@ Terranovaland è un’avventura voxel multiplayer che funziona direttamente nel 
 
 ## Cosa include
 
-- mondo 3D procedurale con biomi, foreste, neve, spiagge, acqua, miniere e ciclo giorno/notte;
+- mondo 3D procedurale molto esteso, caricato a chunk, con biomi, foreste, neve, spiagge, fiumi, laghi, miniere e ciclo giorno/notte;
 - multiplayer in tempo reale con nomi, chat, animazioni e spawn comune;
 - scavo, costruzione, collisioni, corsa, salto e nove slot rapidi;
 - 15 materiali, minerali rari, strumenti, armi, crafting e inventario;
 - quattro famiglie di nemici con IA, difficoltà e ricompense differenti;
 - missioni, monete e mercato;
 - clan fino a 12 membri;
-- draghi condivisi e cavalcabili per volare;
+- draghi condivisi che volano autonomamente e possono essere cavalcati;
+- circuiti di pietrarossa con polvere conduttrice, leve, lampade e pistoni;
+- castelli, torri, rovine, santuari e dungeon distribuiti proceduralmente;
+- acqua animata con onde, riflessi, trasparenza e variazioni di profondità;
+- oggetti fisici gettabili, raccoglibili e regalabili ai giocatori vicini;
+- box persistente alla morte con inventario e monete recuperabili o trasportabili da un amico;
 - salvataggio persistente e protezione della piazza iniziale;
-- UI responsive, comandi integrati e modalità a movimento ridotto;
+- UI responsive, inventario personale, impostazioni grafiche/audio e oggetto visibile in prima persona;
 - immagine Docker, health check e configurazione pronta per VPS.
 
 ## Avvio locale
@@ -99,7 +104,14 @@ Il nome scelto all’accesso identifica il profilo. Questa modalità è intenzio
 | `E` | Cavalca o lascia un drago |
 | `F` | Mangia il pane |
 | `I`, `C`, `M`, `L` | Inventario, crafting, mercato, clan |
-| `T` | Chat |
+| `Tab` | Apre l’inventario personale |
+| Rotella mouse | Seleziona l’oggetto rapido e lo mostra in mano |
+| Click destro nell’inventario | Equipaggia un oggetto |
+| Click sinistro nell’inventario | Regala o getta un oggetto |
+| `T` oppure `Invio` | Chat |
+| `O` | Impostazioni |
+
+Quando un esploratore muore, il suo inventario e le monete vengono racchiusi in un box nel punto della sconfitta. Il proprietario può recuperare tutto con `E`; un altro giocatore può raccogliere il box, trasportarlo e posarlo vicino al proprietario.
 
 ## Verifica
 
