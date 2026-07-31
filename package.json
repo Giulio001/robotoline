@@ -1,8 +1,8 @@
 {
-  "name": "tris-online-multiplayer",
+  "name": "factory-automation-game",
   "version": "1.0.0",
   "private": true,
-  "description": "Tris multiplayer in tempo reale per il web",
+  "description": "Un piccolo clone browser di Factorio: estrazione, nastri trasportatori e crafting automatizzato",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
@@ -14,10 +14,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "express": "^5.1.0",
-    "socket.io": "^4.8.1"
-  },
-  "devDependencies": {
-    "socket.io-client": "^4.8.3"
+    "express": "^5.1.0"
   }
 }

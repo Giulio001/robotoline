@@ -1,7 +1,7 @@
 services:
-  tris-online:
+  factory-game:
     build: .
-    container_name: tris-online
+    container_name: factory-game
     restart: unless-stopped
     environment:
       PORT: 3000

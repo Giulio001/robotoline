@@ -2,153 +2,68 @@
 <html lang="it">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#111827">
-  <meta name="description" content="Tris Online: sfida i tuoi amici in tempo reale.">
-  <title>Tris Online · Multiplayer</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23151d2d'/%3E%3Ctext x='27' y='62' font-family='Arial,sans-serif' font-weight='900' font-size='46' fill='%23ff5d73'%3EX%3C/text%3E%3Ctext x='55' y='78' font-family='Arial,sans-serif' font-weight='900' font-size='30' fill='%2355d6be'%3EO%3C/text%3E%3C/svg%3E">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b101c">
+  <meta name="description" content="Un piccolo clone di Factorio nel browser: estrai, trasporta e automatizza.">
+  <title>Factory · Automazione</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%23151d2d'/%3E%3Crect x='22' y='40' width='56' height='34' rx='4' fill='%23ffb35c'/%3E%3Crect x='30' y='26' width='16' height='16' fill='%2355d6be'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
-  <script src="/socket.io/socket.io.js" defer></script>
   <script src="/game.js" defer></script>
 </head>
 <body>
-  <div class="ambient ambient-one"></div>
-  <div class="ambient ambient-two"></div>
-
   <header class="topbar">
-    <a class="mini-brand" href="/" aria-label="Tris Online">
-      <span class="mini-mark"><i>X</i><b>O</b></span>
-      <strong>TRIS <em>ONLINE</em></strong>
+    <a class="mini-brand" href="/">
+      <span class="mini-mark">⚙</span>
+      <strong>FACTORY <em>AUTOMAZIONE</em></strong>
     </a>
-    <div class="presence"><span class="presence-dot"></span><b id="online-count">0</b> online</div>
   </header>
 
-  <main>
-    <section id="login-view" class="view active" aria-labelledby="login-title">
-      <div class="hero-copy">
-        <span class="eyebrow">MULTIPLAYER IN TEMPO REALE</span>
-        <h1 id="login-title">Tre simboli.<br><span>Una vittoria.</span></h1>
-        <p>Sfida un amico o trova subito un avversario. Niente registrazione: scegli un nome e gioca.</p>
-        <div class="mini-board" aria-hidden="true">
-          <i>X</i><i></i><i>O</i><i></i><i>X</i><i></i><i>O</i><i></i><i>X</i>
+  <main class="layout">
+    <section class="stage">
+      <canvas id="board" width="832" height="576"></canvas>
+      <div id="recipe-modal" class="modal hidden">
+        <div class="modal-card">
+          <h2>Scegli la ricetta</h2>
+          <div id="recipe-list" class="recipe-list"></div>
+          <button id="recipe-close" class="text-button">Chiudi</button>
         </div>
       </div>
-
-      <form id="login-form" class="card login-card">
-        <div class="card-icon">✦</div>
-        <span class="step">PRONTO A GIOCARE?</span>
-        <h2>Entra nell’arena</h2>
-        <p>Il tuo nome sarà visibile al tuo avversario.</p>
-        <label for="player-name">Nome giocatore</label>
-        <div class="input-shell">
-          <span>◎</span>
-          <input id="player-name" name="name" minlength="2" maxlength="18" autocomplete="nickname" placeholder="Es. Giulio" required autofocus>
-        </div>
-        <button class="primary-button" type="submit"><span>Accedi</span><b>→</b></button>
-        <small id="login-error" class="form-error" role="alert"></small>
-      </form>
+      <div id="toasts" class="toasts" aria-live="polite"></div>
     </section>
 
-    <section id="lobby-view" class="view" aria-labelledby="lobby-title">
-      <div class="lobby-heading">
-        <span class="eyebrow">BENTORNATO, <b id="player-label"></b></span>
-        <h1 id="lobby-title">Come vuoi <span>giocare?</span></h1>
-        <p>Trova un avversario online oppure invita direttamente un amico.</p>
-      </div>
-
-      <div class="mode-grid">
-        <article class="mode-card quick-card">
-          <span class="mode-number">01</span>
-          <div class="mode-symbols"><i>X</i><i>O</i></div>
-          <div>
-            <small>PARTITA RAPIDA</small>
-            <h2>Trova un avversario</h2>
-            <p>Ti abbiniamo automaticamente al primo giocatore disponibile.</p>
-          </div>
-          <button id="quick-match" class="primary-button"><span>Gioca adesso</span><b>⚡</b></button>
-        </article>
-
-        <article class="mode-card private-card">
-          <span class="mode-number">02</span>
-          <div class="lock-symbol">⌁</div>
-          <div>
-            <small>STANZA PRIVATA</small>
-            <h2>Gioca con un amico</h2>
-            <p>Crea una stanza e condividi il codice, oppure inseriscine uno.</p>
-          </div>
-          <button id="create-room" class="secondary-button">Crea una stanza <span>＋</span></button>
-          <div class="join-row">
-            <input id="room-code-input" maxlength="5" autocomplete="off" aria-label="Codice stanza" placeholder="CODICE">
-            <button id="join-room" aria-label="Entra nella stanza">Entra →</button>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section id="game-view" class="view" aria-labelledby="game-title">
-      <div class="game-shell">
-        <div class="game-heading">
-          <button id="leave-room" class="text-button">← Esci</button>
-          <div>
-            <small id="round-label">ROUND 1</small>
-            <h1 id="game-title">Partita in corso</h1>
-          </div>
-          <button id="sound-toggle" class="icon-button" aria-label="Disattiva suoni" title="Suoni">♪</button>
-        </div>
-
-        <div class="players-row">
-          <article id="player-x" class="player-card x-card">
-            <span class="player-symbol">X</span>
-            <div><small>GIOCATORE X</small><strong>In attesa…</strong></div>
-            <b class="score">0</b>
-          </article>
-          <div class="versus">VS</div>
-          <article id="player-o" class="player-card o-card">
-            <span class="player-symbol">O</span>
-            <div><small>GIOCATORE O</small><strong>In attesa…</strong></div>
-            <b class="score">0</b>
-          </article>
-        </div>
-
-        <div id="turn-banner" class="turn-banner"><span></span><strong>In attesa dell’avversario…</strong></div>
-
-        <div id="board" class="board" role="grid" aria-label="Griglia del tris">
-          <button data-cell="0" role="gridcell" aria-label="Casella 1"></button>
-          <button data-cell="1" role="gridcell" aria-label="Casella 2"></button>
-          <button data-cell="2" role="gridcell" aria-label="Casella 3"></button>
-          <button data-cell="3" role="gridcell" aria-label="Casella 4"></button>
-          <button data-cell="4" role="gridcell" aria-label="Casella 5"></button>
-          <button data-cell="5" role="gridcell" aria-label="Casella 6"></button>
-          <button data-cell="6" role="gridcell" aria-label="Casella 7"></button>
-          <button data-cell="7" role="gridcell" aria-label="Casella 8"></button>
-          <button data-cell="8" role="gridcell" aria-label="Casella 9"></button>
-        </div>
-
-        <div id="result-panel" class="result-panel hidden">
-          <span id="result-icon">✦</span>
-          <div><small>PARTITA TERMINATA</small><strong id="result-title"></strong><p id="result-copy"></p></div>
-          <button id="rematch-button" class="primary-button"><span>Rivincita</span><b>↻</b></button>
-        </div>
-
-        <div class="room-strip">
-          <div><small>CODICE STANZA</small><strong id="room-code">—</strong></div>
-          <button id="copy-code">Copia codice <span>▢</span></button>
+    <aside class="sidebar">
+      <div class="panel">
+        <h2>Hotbar <small>(tasti 1-5, R ruota)</small></h2>
+        <div id="hotbar" class="hotbar">
+          <button data-tool="drill" class="hotbar-btn active"><b>1</b><span>⛏</span>Trapano</button>
+          <button data-tool="belt" class="hotbar-btn"><b>2</b><span>➜</span>Nastro</button>
+          <button data-tool="assembler" class="hotbar-btn"><b>3</b><span>⚙</span>Assemblatore</button>
+          <button data-tool="chest" class="hotbar-btn"><b>4</b><span>▤</span>Cassa</button>
+          <button data-tool="remove" class="hotbar-btn"><b>5</b><span>✕</span>Rimuovi</button>
         </div>
       </div>
-    </section>
+
+      <div class="panel">
+        <h2>Inventario</h2>
+        <ul id="inventory" class="inventory"></ul>
+      </div>
+
+      <div class="panel">
+        <h2>Crafting manuale</h2>
+        <div id="hand-craft" class="hand-craft"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Obiettivi</h2>
+        <ul id="objectives" class="objectives"></ul>
+      </div>
+
+      <div class="panel controls-help">
+        <h2>Comandi</h2>
+        <p><b>WASD / frecce</b> muovi · <b>E</b> interagisci · <b>R</b> ruota piazzamento</p>
+        <p><b>Click sinistro</b> piazza · <b>Click destro</b> rimuovi</p>
+      </div>
+    </aside>
   </main>
-
-  <div id="queue-overlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="queue-title">
-    <div class="queue-card">
-      <div class="loader"><i>X</i><i>O</i></div>
-      <span class="eyebrow">MATCHMAKING</span>
-      <h2 id="queue-title">Cerco un avversario…</h2>
-      <p>Appena un altro giocatore sarà disponibile, la partita inizierà automaticamente.</p>
-      <button id="cancel-queue" class="text-button">Annulla ricerca</button>
-    </div>
-  </div>
-
-  <div id="toasts" class="toasts" aria-live="polite"></div>
-  <div id="confetti" aria-hidden="true"></div>
 </body>
 </html>
