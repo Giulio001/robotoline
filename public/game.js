@@ -14,6 +14,7 @@ let reconnecting = false;
 
 function showView(id) {
   $$('.view').forEach(view => view.classList.toggle('active', view.id === id));
+  window.scrollTo(0, 0);
 }
 
 function toast(message) {
