@@ -22,25 +22,29 @@ button:focus-visible { outline:3px solid rgba(139,124,246,.5); outline-offset:2p
 .mini-brand strong { font-size:13px; }
 .mini-brand em { color:var(--ok); font-style:normal; }
 .mini-mark { width:32px; height:32px; display:grid; place-items:center; border:1px solid var(--line); border-radius:9px; background:rgba(255,255,255,.05); color:var(--warn); }
-.layout { display:flex; gap:20px; align-items:flex-start; max-width:1280px; margin:0 auto; padding:20px clamp(16px,3vw,32px) 48px; }
+.icon-button { width:36px; height:36px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,.05); color:var(--ink); cursor:pointer; font-size:16px; }
+.icon-button:hover { border-color:rgba(139,124,246,.5); }
+.layout { display:flex; gap:20px; align-items:flex-start; max-width:1400px; margin:0 auto; padding:20px clamp(16px,3vw,32px) 48px; }
 .stage { position:relative; flex:1 1 auto; min-width:0; }
-#board { width:100%; max-width:832px; aspect-ratio:832/576; display:block; border:1px solid var(--line); border-radius:16px; background:#0d1420; box-shadow:var(--shadow); cursor:crosshair; }
+#board { width:100%; max-width:1040px; aspect-ratio:1040/640; display:block; border:1px solid var(--line); border-radius:16px; background:#0d1420; box-shadow:var(--shadow); cursor:crosshair; }
+#minimap { position:absolute; top:14px; right:14px; width:170px; height:109px; border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); pointer-events:none; opacity:.92; }
 
 .sidebar { width:300px; flex:0 0 300px; display:flex; flex-direction:column; gap:14px; }
 .panel { border:1px solid var(--line); border-radius:16px; padding:14px 16px; background:var(--surface); box-shadow:var(--shadow); }
 .panel h2 { margin:0 0 10px; font-size:13px; letter-spacing:.03em; }
 .panel h2 small { color:var(--muted); font-weight:500; font-size:11px; margin-left:6px; }
 
-.hotbar { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+.hotbar { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
 .hotbar-btn { position:relative; display:flex; flex-direction:column; align-items:center; gap:2px; padding:8px 2px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,.04); cursor:pointer; font-size:9px; color:var(--muted); transition:.15s; }
 .hotbar-btn span { font-size:16px; color:var(--ink); }
 .hotbar-btn b { position:absolute; top:2px; left:4px; font-size:8px; color:#596377; }
 .hotbar-btn.active { border-color:rgba(139,124,246,.6); background:rgba(139,124,246,.14); color:var(--ink); }
 
 .inventory { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; font-size:12px; max-height:180px; overflow-y:auto; }
-.inventory li { display:flex; align-items:center; justify-content:space-between; padding:6px 9px; border:1px solid var(--line); border-radius:9px; background:rgba(255,255,255,.03); }
-.inventory li b { color:var(--ok); }
+.inventory li { display:flex; align-items:center; gap:8px; padding:6px 9px; border:1px solid var(--line); border-radius:9px; background:rgba(255,255,255,.03); }
+.inventory li b { margin-left:auto; color:var(--ok); }
 .inventory .empty { color:var(--muted); padding:6px 2px; }
+.swatch { flex:0 0 auto; width:10px; height:10px; border-radius:3px; }
 
 .hand-craft { display:flex; flex-direction:column; gap:8px; }
 .hand-craft button { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 11px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,.04); cursor:pointer; font-size:11px; text-align:left; }

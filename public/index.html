@@ -16,11 +16,13 @@
       <span class="mini-mark">⚙</span>
       <strong>FACTORY <em>AUTOMAZIONE</em></strong>
     </a>
+    <button id="sound-toggle" class="icon-button" aria-label="Attiva/disattiva suoni" title="Suoni">♪</button>
   </header>
 
   <main class="layout">
     <section class="stage">
-      <canvas id="board" width="832" height="576"></canvas>
+      <canvas id="board" width="1040" height="640"></canvas>
+      <canvas id="minimap" width="170" height="109"></canvas>
       <div id="recipe-modal" class="modal hidden">
         <div class="modal-card">
           <h2>Scegli la ricetta</h2>
@@ -33,13 +35,14 @@
 
     <aside class="sidebar">
       <div class="panel">
-        <h2>Hotbar <small>(tasti 1-5, R ruota)</small></h2>
+        <h2>Hotbar <small>(tasti 1-6, R ruota, rotella zoom)</small></h2>
         <div id="hotbar" class="hotbar">
           <button data-tool="drill" class="hotbar-btn active"><b>1</b><span>⛏</span>Trapano</button>
           <button data-tool="belt" class="hotbar-btn"><b>2</b><span>➜</span>Nastro</button>
-          <button data-tool="assembler" class="hotbar-btn"><b>3</b><span>⚙</span>Assemblatore</button>
-          <button data-tool="chest" class="hotbar-btn"><b>4</b><span>▤</span>Cassa</button>
-          <button data-tool="remove" class="hotbar-btn"><b>5</b><span>✕</span>Rimuovi</button>
+          <button data-tool="inserter" class="hotbar-btn"><b>3</b><span>↝</span>Inserter</button>
+          <button data-tool="assembler" class="hotbar-btn"><b>4</b><span>⚙</span>Assemblatore</button>
+          <button data-tool="chest" class="hotbar-btn"><b>5</b><span>▤</span>Cassa</button>
+          <button data-tool="remove" class="hotbar-btn"><b>6</b><span>✕</span>Rimuovi</button>
         </div>
       </div>
 
@@ -60,8 +63,8 @@
 
       <div class="panel controls-help">
         <h2>Comandi</h2>
-        <p><b>WASD / frecce</b> muovi · <b>E</b> interagisci · <b>R</b> ruota piazzamento</p>
-        <p><b>Click sinistro</b> piazza · <b>Click destro</b> rimuovi</p>
+        <p><b>WASD / frecce</b> muovi (anche in diagonale) · <b>E</b> interagisci · <b>R</b> ruota piazzamento</p>
+        <p><b>Click sinistro</b> piazza · <b>Click destro</b> rimuovi · <b>Rotella</b> zoom</p>
       </div>
     </aside>
   </main>
